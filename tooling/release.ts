@@ -1,11 +1,25 @@
 import { parseManifestJson } from '@openchamber/sdk/schemas';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { readdir, stat } from 'node:fs/promises';
 import { resolve } from 'node:path';
 
+export const sourcePackageVersion = (): string => JSON.parse(readFileSync(resolve(import.meta.dir, '../plugins/git-graph/package.json'), 'utf8')).version;
+
+export const releaseVersion = (): string => {
+  const sourceVersion = sourcePackageVersion();
+  const version = process.env.RELEASE_VERSION || sourceVersion;
+  if (!/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(version)) throw new Error(`Invalid RELEASE_VERSION: ${version}`);
+  const parts = (value: string) => value.split('.').map(Number);
+  const requested = parts(version);
+  const source = parts(sourceVersion);
+  const comparison = requested.reduce((result, part, index) => result || part - source[index]!, 0);
+  if (comparison < 0) throw new Error(`RELEASE_VERSION cannot be below source package version ${sourceVersion}`);
+  return version;
+};
+
 export const releaseManifest = () => ({
   name: '@openchamber-plugin/git-graph',
-  version: '0.1.0',
+  version: releaseVersion(),
   type: 'module',
   main: './dist/service/index.js',
   openchamber: {
@@ -53,6 +67,10 @@ export const validateReleaseTree = async (releaseRoot: string): Promise<void> =>
   if (!existsSync(packagePath)) throw new Error(`Missing release asset: ${packagePath}`);
   const manifest = await Bun.file(packagePath).json();
   assertManifest(manifest);
+  const packedManifestPath = resolve(releaseRoot, 'dist/manifests/package.json');
+  if (!existsSync(packedManifestPath)) throw new Error(`Missing release asset: ${packedManifestPath}`);
+  const packedManifest = await Bun.file(packedManifestPath).json();
+  if (packedManifest.version !== manifest.version) throw new Error('Release root and dist manifests have different versions');
   const contributions = manifest.openchamber.contributes;
   const entries = [contributions.statusSection === true ? contributions.statusSection.entry : contributions.statusSection?.entry, contributions.service.entry].filter(Boolean);
   for (const entry of new Set(entries)) {
