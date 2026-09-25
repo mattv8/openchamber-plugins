@@ -10,7 +10,9 @@ The release package root has a real `package.json` with an official v2 manifest.
 
 ## Install
 
-Build or download `git-graph.zip`, then choose Settings → Extensions → Add in OpenChamber and select the archive. OpenChamber installs the precompiled package. It does not build the plugin during installation.
+[Download the latest Git Graph ZIP](https://github.com/mattv8/openchamber-plugins/releases/latest/download/git-graph.zip), then choose Settings → Extensions → Add in OpenChamber and select the archive. OpenChamber installs the precompiled package. It does not build the plugin during installation.
+
+[Tagged releases](https://github.com/mattv8/openchamber-plugins/releases) include checksums, source provenance, and version-specific downloads.
 
 Allow the Git service on the extension's settings card. Open Work Status to find **Git**. The section provides auto/all/manual history filters. The native workspace and floating commit popover are deferred rather than replaced with a different interface.
 

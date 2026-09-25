@@ -20,7 +20,7 @@ The original graph geometry and deterministic color assignment are retained.
 The SDK does not expose the original syntax palette, so the five graph color
 variables currently use available host theme tokens. The original cross-panel
 popover, section-header controls, and native workspace integration are deferred.
-See [SDK integration gaps](../../../../../docs/sdk-integration-gaps.md).
+See [Git Graph agent guidance](../../../../../.agents/git-graph.md).
 
 ## Strict TypeScript compatibility
 

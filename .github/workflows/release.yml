@@ -1,59 +1,95 @@
 name: Release Git Graph
-
 on:
   push:
-    tags: ['git-graph/v*']
+    branches: [main]
+  workflow_dispatch:
 
-permissions:
-  contents: read
+permissions: { contents: read }
+concurrency:
+  group: git-graph-release
+  cancel-in-progress: false
 
 jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      should_release: ${{ steps.plan.outputs.should_release }}
+      release_version: ${{ steps.plan.outputs.release_version }}
+      source_sha: ${{ steps.source.outputs.source_sha }}
+      previous_tag: ${{ steps.plan.outputs.previous_tag }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with: { bun-version: 1.4.2 }
+      - id: source
+        run: printf 'source_sha=%s\n' "$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - name: Restrict releases to main
+        run: test "$GITHUB_REF" = refs/heads/main
+      - id: plan
+        env:
+          SOURCE_SHA: ${{ steps.source.outputs.source_sha }}
+        run: |
+          if [ "$SOURCE_SHA" != "$(git rev-parse origin/main)" ]; then
+            echo 'should_release=false' >> "$GITHUB_OUTPUT"
+          else
+            bun run tooling/release-planner.ts
+          fi
   build:
+    if: needs.plan.outputs.should_release == 'true'
+    needs: plan
     uses: ./.github/workflows/build-test-host.yml
     with:
-      target: stock
-    permissions:
-      contents: read
-
+      source_sha: ${{ needs.plan.outputs.source_sha }}
+      release_version: ${{ needs.plan.outputs.release_version }}
+    permissions: { contents: read }
   publish:
-    needs: build
+    if: needs.plan.outputs.should_release == 'true'
+    needs: [plan, build]
     runs-on: ubuntu-latest
-    environment: publish
-    permissions:
-      contents: write
+    permissions: { contents: write }
     steps:
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
-          name: git-graph-packed-plugin
-          path: artifacts/git-graph
-      - name: Validate SHA256 checksum
+          ref: ${{ needs.plan.outputs.source_sha }}
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with: { bun-version: 1.4.2 }
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with: { name: git-graph-packed-plugin, path: artifacts/git-graph }
+      - run: bun install --frozen-lockfile --ignore-scripts
+      - id: fresh-plan
         env:
+          SOURCE_SHA: ${{ needs.plan.outputs.source_sha }}
+        run: |
+          git fetch --tags origin
+          bun run tooling/release-planner.ts
+      - name: Verify source, tag reservation, and archive checksum
+        env:
+          SOURCE_SHA: ${{ needs.plan.outputs.source_sha }}
+          RELEASE_VERSION: ${{ needs.plan.outputs.release_version }}
+          PREVIOUS_TAG: ${{ steps.fresh-plan.outputs.previous_tag }}
+          FRESH_RELEASE_VERSION: ${{ steps.fresh-plan.outputs.release_version }}
+          FRESH_SHOULD_RELEASE: ${{ steps.fresh-plan.outputs.should_release }}
           EXPECTED_PLUGIN_SHA256: ${{ needs.build.outputs.plugin_sha256 }}
         run: |
-          if [ ! -f artifacts/git-graph/git-graph.zip.sha256 ]; then
-            echo "Missing SHA256 file"
-            exit 1
+          test "$FRESH_SHOULD_RELEASE" = true
+          test "$FRESH_RELEASE_VERSION" = "$RELEASE_VERSION"
+          tag="git-graph/v$RELEASE_VERSION"
+          git merge-base --is-ancestor "$SOURCE_SHA" origin/main
+          if git show-ref --verify --quiet "refs/tags/$tag"; then
+            git merge-base --is-ancestor "$tag" "$SOURCE_SHA"
+            test "$(git rev-list -n 1 "$tag")" = "$SOURCE_SHA"
           fi
           (cd artifacts/git-graph && sha256sum -c git-graph.zip.sha256)
-          actual_plugin_sha256="$(sha256sum artifacts/git-graph/git-graph.zip | cut -d' ' -f1)"
-          test "$actual_plugin_sha256" = "$EXPECTED_PLUGIN_SHA256"
-      - name: Verify provenance JSON exists
-        run: |
-          if [ ! -f artifacts/git-graph/provenance.json ]; then
-            echo "Missing provenance.json"
-            exit 1
-          fi
-          # Validate JSON structure without executing
-          jq . artifacts/git-graph/provenance.json > /dev/null
-      - name: Create release and upload artifacts
+          test "$(sha256sum artifacts/git-graph/git-graph.zip | cut -d' ' -f1)" = "$EXPECTED_PLUGIN_SHA256"
+      - name: Publish only the validated tested archive
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          RELEASE_TAG: ${{ github.ref_name }}
-        run: |
-          gh release create "$RELEASE_TAG" --repo "$GH_REPO" \
-            --title "Git Graph ${RELEASE_TAG#git-graph/}" \
-            --notes "See provenance.json for build details." \
-            'artifacts/git-graph/git-graph.zip#Git Graph plugin' \
-            artifacts/git-graph/git-graph.zip.sha256 \
-            artifacts/git-graph/provenance.json
+          SOURCE_SHA: ${{ needs.plan.outputs.source_sha }}
+          RELEASE_VERSION: ${{ needs.plan.outputs.release_version }}
+          PREVIOUS_TAG: ${{ steps.fresh-plan.outputs.previous_tag }}
+        run: bun run tooling/publisher.ts
