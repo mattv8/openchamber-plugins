@@ -4,7 +4,7 @@ This repository contains independently installable OpenChamber plugins. It is no
 
 ## Packages
 
-- `plugins/git-graph`: Work Status Git graph ported from PR #3008. Its service owns local Git access. The original native combined workspace and cross-panel popover await host integration hooks.
+- `plugins/git-graph`: Work Status Git graph. Its service owns local Git access. The original native combined workspace and cross-panel popover await host integration hooks.
 
 ## Development
 
