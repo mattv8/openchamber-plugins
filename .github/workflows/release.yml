@@ -1,0 +1,59 @@
+name: Release Git Graph
+
+on:
+  push:
+    tags: ['git-graph/v*']
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    uses: ./.github/workflows/build-test-host.yml
+    with:
+      target: stock
+    permissions:
+      contents: read
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: publish
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: git-graph-packed-plugin
+          path: artifacts/git-graph
+      - name: Validate SHA256 checksum
+        env:
+          EXPECTED_PLUGIN_SHA256: ${{ needs.build.outputs.plugin_sha256 }}
+        run: |
+          if [ ! -f artifacts/git-graph/git-graph.zip.sha256 ]; then
+            echo "Missing SHA256 file"
+            exit 1
+          fi
+          (cd artifacts/git-graph && sha256sum -c git-graph.zip.sha256)
+          actual_plugin_sha256="$(sha256sum artifacts/git-graph/git-graph.zip | cut -d' ' -f1)"
+          test "$actual_plugin_sha256" = "$EXPECTED_PLUGIN_SHA256"
+      - name: Verify provenance JSON exists
+        run: |
+          if [ ! -f artifacts/git-graph/provenance.json ]; then
+            echo "Missing provenance.json"
+            exit 1
+          fi
+          # Validate JSON structure without executing
+          jq . artifacts/git-graph/provenance.json > /dev/null
+      - name: Create release and upload artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$RELEASE_TAG" --repo "$GH_REPO" \
+            --title "Git Graph ${RELEASE_TAG#git-graph/}" \
+            --notes "See provenance.json for build details." \
+            'artifacts/git-graph/git-graph.zip#Git Graph plugin' \
+            artifacts/git-graph/git-graph.zip.sha256 \
+            artifacts/git-graph/provenance.json

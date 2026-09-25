@@ -1,0 +1,7 @@
+node_modules/
+.cache/
+artifacts/
+.opencode/sessions/
+plugins/*/dist/
+playwright-report/
+test-results/
