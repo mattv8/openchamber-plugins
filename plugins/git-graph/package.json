@@ -1,0 +1,30 @@
+{
+  "name": "@openchamber-plugin/git-graph",
+  "version": "0.1.0",
+  "description": "Independent Git graph and changes workspace for OpenChamber.",
+  "license": "MIT",
+  "type": "module",
+  "files": ["dist", "package.json", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md"],
+  "main": "./dist/service/index.js",
+  "openchamber": {
+    "apiVersion": 1,
+    "engines": { "openchamber": ">=2.0.1" },
+    "contributes": {
+      "panel": { "id": "git-graph", "name": "Git Graph", "icon": "git-branch" },
+      "statusSection": { "entry": "dist/panel/status.html", "title": "Git", "height": 260 },
+      "service": { "entry": "dist/service/index.js", "runtime": "host", "permissions": { "exec": ["git"] } }
+    }
+  },
+  "scripts": {
+    "build": "bun run ../../tooling/build.ts git-graph",
+    "package": "bun run ../../tooling/package.ts git-graph"
+  },
+  "dependencies": {
+    "@openchamber/sdk": "2.0.1",
+    "diff": "^8.0.2",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "simple-git": "^3.36.0",
+    "zod": "^4.3.6"
+  }
+}

@@ -1,0 +1,112 @@
+name: Build and test isolated host
+
+on:
+  workflow_call:
+    inputs:
+      target:
+        required: true
+        type: string
+    outputs:
+      plugin_sha256:
+        value: ${{ jobs.build.outputs.plugin_sha256 }}
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Verified host target
+        required: true
+        default: stock
+        type: choice
+        options: [stock]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      plugin_sha256: ${{ steps.provenance.outputs.plugin_sha256 }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.2
+      - run: bun install --frozen-lockfile
+      - run: bun run build -- git-graph
+      - run: bun run package -- git-graph
+      - run: bun run validate
+      - id: provenance
+        env:
+          SOURCE_SHA: ${{ github.sha }}
+          WORKFLOW_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          plugin_version="$(jq -r '.version' plugins/git-graph/package.json)"
+          cd artifacts/git-graph
+          sha256sum git-graph.zip > git-graph.zip.sha256
+          plugin_sha256="$(cut -d' ' -f1 git-graph.zip.sha256)"
+          jq -n \
+            --arg sourceSHA "$SOURCE_SHA" \
+            --arg pluginVersion "$plugin_version" \
+            --arg hostSHA "ffa12ea39b00c0fe1f2b9c9f56b7aefc6ff3fcce" \
+            --arg workflowURL "$WORKFLOW_URL" \
+            --arg pluginSHA256 "$plugin_sha256" \
+            '{sourceSHA: $sourceSHA, pluginVersion: $pluginVersion, hostSHA: $hostSHA, workflowURL: $workflowURL, archive: {name: "git-graph.zip", sha256: $pluginSHA256}}' \
+            > provenance.json
+          printf 'plugin_sha256=%s\n' "$plugin_sha256" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: git-graph-packed-plugin
+          path: artifacts/git-graph/
+          if-no-files-found: error
+
+  test-host:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.2
+      - run: bun install --frozen-lockfile
+      - run: bunx playwright install --with-deps chromium
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: git-graph-packed-plugin
+          path: artifacts/git-graph
+      - name: Check out allowlisted v2 host source only
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          repository: openchamber/openchamber
+          ref: ffa12ea39b00c0fe1f2b9c9f56b7aefc6ff3fcce
+          path: .cache/stock-host
+          persist-credentials: false
+      - name: Verify allowlisted host revision
+        run: test "$(git -C .cache/stock-host rev-parse HEAD)" = ffa12ea39b00c0fe1f2b9c9f56b7aefc6ff3fcce
+      - name: Build the allowlisted web host
+        working-directory: .cache/stock-host
+        run: |
+          bun install --frozen-lockfile
+          bun run build:web
+          test -f packages/web/dist/index.html
+      - name: Provision the OpenCode version pinned by the host
+        working-directory: .cache/stock-host
+        env:
+          OPENCODE_CACHE: ${{ github.workspace }}/.cache/opencode-cli
+        run: |
+          mkdir -p "$OPENCODE_CACHE"
+          OPENCODE_VERSION="$(jq -r '.dependencies["@opencode/client"]' package.json)"
+          test -n "$OPENCODE_VERSION" && test "$OPENCODE_VERSION" != null
+          OPENCODE_ARCHIVE="$(npm pack "@opencode/cli-linux-x64-baseline@${OPENCODE_VERSION}" --ignore-scripts --pack-destination "$OPENCODE_CACHE" --json | jq -r '.[0].filename')"
+          test -n "$OPENCODE_ARCHIVE" && test "$OPENCODE_ARCHIVE" != null
+          tar -xzf "$OPENCODE_CACHE/$OPENCODE_ARCHIVE" -C "$OPENCODE_CACHE" --strip-components=2 package/bin/opencode
+          test -x "$OPENCODE_CACHE/opencode"
+      - name: Run verified host test
+        env:
+          OPENCHAMBER_HOST_SOURCE: ${{ github.workspace }}/.cache/stock-host
+          OPENCHAMBER_PLUGIN_ZIP: ${{ github.workspace }}/artifacts/git-graph/git-graph.zip
+          OPENCHAMBER_TEST_OPENCODE_BINARY: ${{ github.workspace }}/.cache/opencode-cli/opencode
+        run: bun run test:app:stock
