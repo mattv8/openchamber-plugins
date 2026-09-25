@@ -5,9 +5,9 @@
 - PR #3008 at `5186bb6b17e6c5ebc1ade97bfd000d858d8e4d92` is canonical. Preserve its
   original graph algorithm, SVG renderer, and their regression tests; a newly
   invented graph or replacement domain model is not equivalent.
-- The supported package is a Work Status graph only. The dormant combined
-  workspace/service code is intentionally retained for later integration and
-  mutation coverage, but must remain unexposed.
+- The supported package is a Work Status graph only. The combined-workspace
+  UI is retained for later integration and mutation coverage, but must remain
+  unexposed. The plugin service is active; it supplies the status graph's reads.
 - Do not revive a separate rail button, extension page, or inline commit-details
   card as substitutes for the original integration. The original cross-panel
   popover and combined workspace remain requirements awaiting host hooks.

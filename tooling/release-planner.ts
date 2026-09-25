@@ -27,9 +27,14 @@ export const planRelease = (source: string, git: Git, floor = sourceVersion()): 
   const previousTag = tags.at(-1);
   if (!previousTag) return { shouldRelease: true, version: floor, reason: 'bootstrap release' };
   const previousCommit = git(['rev-list', '-n', '1', previousTag]).trim();
-  if (git(['merge-base', previousTag, source]).trim() !== previousCommit) return { shouldRelease: false, previousTag, reason: 'source predates latest release' };
   const sourceTag = [...tags].reverse().find((tag) => git(['rev-list', '-n', '1', tag]).trim() === source);
   if (sourceTag && sourceTag !== previousTag) return { shouldRelease: false, previousTag, reason: 'source tag is below the latest release' };
+  const sourceHistory = git(['log', '--format=%H %T', source]).trim().split('\n').filter(Boolean)
+    .map((line) => line.split(/\s+/, 2));
+  const previousTree = git(['show', '-s', '--format=%T', previousCommit]).trim();
+  if (!sourceHistory.some(([commit, tree]) => commit === previousCommit || tree === previousTree)) {
+    return { shouldRelease: false, previousTag, reason: 'source predates latest release' };
+  }
   if (sourceTag) return { shouldRelease: true, version: sourceTag.slice(tagPrefix.length), previousTag, reason: 'retry existing source tag' };
   const changed = git(['diff', '--no-renames', '--name-only', `${previousTag}..${source}`]).trim().split('\n').filter(Boolean);
   if (!changed.some(relevantPath)) return { shouldRelease: false, previousTag, reason: 'no release-relevant changes' };

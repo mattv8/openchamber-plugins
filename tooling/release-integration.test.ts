@@ -31,9 +31,26 @@ test('release planning follows real git history, tags, and renamed build inputs'
     // An unsuccessful draft has no tag, so rerunning reserves the same version.
     expect(planRelease(second, git, '0.1.0').version).toBe('0.1.1');
     git(['tag', 'git-graph/v0.1.1']);
+    await mkdir(resolve(root, 'docs'), { recursive: true });
+    await writeFile(resolve(root, 'docs/history.md'), 'Original history\n');
+    const historicalRoot = commit('Add historical documentation');
+    git(['tag', 'git-graph/v0.1.2']);
+    await writeFile(resolve(root, 'docs/history.md'), 'Rewritten history\n');
+    git(['add', 'docs/history.md']);
+    const rewrittenRoot = git(['write-tree']);
+    const rewrittenHistory = git(['commit-tree', rewrittenRoot, '-m', 'Rewrite historical documentation']);
+    git(['reset', '--hard', historicalRoot]);
+    const replayedRelease = git(['commit-tree', `${historicalRoot}^{tree}`, '-p', rewrittenHistory, '-m', 'Replay released tree']);
+    git(['branch', 'rewritten', replayedRelease]);
+    git(['checkout', 'rewritten']);
+    expect(planRelease(replayedRelease, git, '0.1.0').shouldRelease).toBe(false);
+    await writeFile(resolve(root, 'plugins/git-graph/src/entry.ts'), 'export const version = 3;\n');
+    const rebasedCode = commit('Update rebased plugin');
+    expect(planRelease(rebasedCode, git, '0.1.0').version).toBe('0.1.3');
+    git(['checkout', 'main']);
+    git(['tag', '-d', 'git-graph/v0.1.2']);
     expect(planRelease(first, git, '0.1.0').shouldRelease).toBe(false);
     expect(planRelease(second, git, '0.1.0').version).toBe('0.1.1');
-    await mkdir(resolve(root, 'docs'));
     git(['mv', 'plugins/git-graph/src/entry.ts', 'docs/retired.md']);
     const renamed = commit('Retire source into documentation');
     expect(planRelease(renamed, git, '0.1.0').version).toBe('0.1.2');
