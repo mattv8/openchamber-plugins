@@ -4,6 +4,8 @@ import { join } from 'node:path';
 import { z } from 'zod';
 import type { ReadData, ReadRequest, Repository, ServiceContext } from './contracts.js';
 import { ServiceError, requireGit, validatePath, validateRef } from './contracts.js';
+import { readCommitSummary } from './commit-summary.js';
+import { readRemoteMetadata } from './remotes.js';
 
 const HASH = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i;
 const MAX_REF_METADATA_OUTPUT_BYTES = 8 * 1024 * 1024;
@@ -185,7 +187,9 @@ export async function readRepository(context: ServiceContext, repository: Reposi
     return { read: 'working-tree', status: await status(context, repository), stashes };
   }
   if (request.read === 'refs') return refs(context, repository, request);
+  if (request.read === 'remotes') return { read: 'remotes', remotes: await readRemoteMetadata(context, repository) };
   if (request.read === 'resolve-commit') return resolveCommit(context, repository, request.candidate);
+  if (request.read === 'commit-summary') return readCommitSummary(context, repository, request.commit);
   if (request.read === 'merge-base') {
     await Promise.all(request.refs.map((ref) => verifyCommitish(context, repository, ref)));
     const result = await context.runGit(repository.root, ['merge-base', '--', request.refs[0]!, request.refs[1]!]);

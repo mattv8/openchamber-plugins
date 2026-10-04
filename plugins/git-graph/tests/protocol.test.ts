@@ -36,6 +36,12 @@ describe('Git Graph service protocol', () => {
     expect(request.limit).toBe(200);
   });
 
+  test('accepts snapshot-scoped commit-summary and remotes reads', () => {
+    const base = { version: 1, requestId: 'summary-1', operation: 'read', repositoryId: 'repo-1', snapshot: 'snapshot-1' };
+    expect(() => GitGraphRequestSchema.parse({ ...base, read: 'commit-summary', commit: 'a'.repeat(40) })).not.toThrow();
+    expect(() => GitGraphRequestSchema.parse({ ...base, read: 'remotes' })).not.toThrow();
+  });
+
   test('rejects an unstructured mutation payload', () => {
     expect(() => GitGraphRequestSchema.parse({
       version: 1,

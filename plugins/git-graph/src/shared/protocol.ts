@@ -31,13 +31,15 @@ const HistoryItem = z.object({ id: FullCommit, parentIds: z.array(FullCommit).ma
 const DiffChunk = z.object({ snapshot: Snapshot, chunkId: Id, offset: z.number().int().nonnegative(), totalBytes: z.number().int().nonnegative(), complete: z.boolean(), text: z.string().max(240000), isBinary: z.boolean(), truncated: z.boolean() });
 const Hunk = z.object({ id: Id, oldStart: z.number().int().nonnegative(), oldLines: z.number().int().nonnegative(), newStart: z.number().int().nonnegative(), newLines: z.number().int().nonnegative() });
 
-export const ReadOperationSchema = z.enum(['status', 'history', 'refs', 'merge-base', 'resolve-commit', 'commit-files', 'commit-file-preview', 'working-tree', 'working-tree-diff', 'hunks', 'range-diff', 'range-files']);
+export const ReadOperationSchema = z.enum(['status', 'history', 'refs', 'remotes', 'merge-base', 'resolve-commit', 'commit-summary', 'commit-files', 'commit-file-preview', 'working-tree', 'working-tree-diff', 'hunks', 'range-diff', 'range-files']);
 const ReadRequestSchema = z.discriminatedUnion('read', [
   SnapshotRequest.extend({ operation: z.literal('read'), read: z.literal('status') }),
   SnapshotRequest.extend({ operation: z.literal('read'), read: z.literal('history'), refs: z.array(Ref).min(1).max(32), cursor: z.string().min(1).max(1024).nullable(), limit: z.number().int().min(1).max(100) }),
   SnapshotRequest.extend({ operation: z.literal('read'), read: z.literal('refs'), cursor: z.string().min(1).max(1024).nullable().optional(), limit: z.number().int().min(1).max(200).optional() }),
+  SnapshotRequest.extend({ operation: z.literal('read'), read: z.literal('remotes') }),
   SnapshotRequest.extend({ operation: z.literal('read'), read: z.literal('merge-base'), refs: z.array(Ref).length(2) }),
   SnapshotRequest.extend({ operation: z.literal('read'), read: z.literal('resolve-commit'), candidate: z.string().regex(/^(?:[0-9a-f]{7,40}|[0-9a-f]{64})$/i) }),
+  SnapshotRequest.extend({ operation: z.literal('read'), read: z.literal('commit-summary'), commit: FullCommit }),
   SnapshotRequest.extend({ operation: z.literal('read'), read: z.literal('commit-files'), commit: FullCommit, parent: FullCommit.nullable() }),
   SnapshotRequest.extend({ operation: z.literal('read'), read: z.literal('commit-file-preview'), commit: FullCommit, parent: FullCommit.nullable(), originalPath: Path.nullable(), modifiedPath: Path.nullable(), offset: z.number().int().nonnegative(), limit: z.number().int().min(1).max(240000) }),
   SnapshotRequest.extend({ operation: z.literal('read'), read: z.literal('working-tree') }),
@@ -71,8 +73,10 @@ export const ReadDataSchema = z.discriminatedUnion('read', [
   z.object({ read: z.literal('status'), status: StatusSchema }),
   z.object({ read: z.literal('history'), items: z.array(HistoryItem).max(100), nextCursor: z.string().max(1024).nullable(), hasMore: z.boolean(), refsSnapshot: Snapshot }),
   z.object({ read: z.literal('refs'), refs: z.array(RefInfo).max(1024), current: RefInfo.nullable(), upstream: RefInfo.nullable(), base: RefInfo.nullable(), nextCursor: z.string().max(1024).nullable().optional() }),
+  z.object({ read: z.literal('remotes'), remotes: z.array(z.object({ name: z.string().min(1).max(512), fetchUrl: z.string().max(2048).nullable(), pushUrl: z.string().max(2048).nullable() })).max(128) }),
   z.object({ read: z.literal('merge-base'), mergeBase: FullCommit.nullable() }),
   z.object({ read: z.literal('resolve-commit'), commit: FullCommit.nullable(), ambiguous: z.boolean() }),
+  z.object({ read: z.literal('commit-summary'), commit: z.object({ id: FullCommit, parentIds: z.array(FullCommit).max(32), subject: z.string().max(8192), message: z.string().max(65536), author: z.string().max(512), authorEmail: z.string().max(512), timestamp: z.string().datetime({ offset: true }), statistics: z.object({ files: z.number().int().nonnegative(), insertions: z.number().int().nonnegative(), deletions: z.number().int().nonnegative() }) }), messageTruncated: z.boolean() }),
   z.object({ read: z.literal('commit-files'), files: z.array(FileChange).max(5000) }),
   z.object({ read: z.literal('commit-file-preview'), chunk: DiffChunk, originalAvailable: z.boolean(), modifiedAvailable: z.boolean() }),
   z.object({ read: z.literal('working-tree'), status: StatusSchema, stashes: z.array(z.object({ ref: Ref, message: z.string().max(8192), hash: FullCommit })).max(1024) }),
