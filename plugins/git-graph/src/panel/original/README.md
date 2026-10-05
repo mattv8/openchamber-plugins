@@ -17,9 +17,12 @@ The extension uses local SVG icons because the host's icon sprite is not
 available inside the guest frame.
 
 The original graph geometry and deterministic color assignment are retained.
-The SDK does not expose the original syntax palette, so the five graph color
-variables currently use available host theme tokens. The original cross-panel
-popover, section-header controls, and native workspace integration are deferred.
+The five graph color variables map to the host's syntax keyword, function,
+type, string and variable colors, the order used by the original
+`getGitGraphSeries`. Hosts without syntax tokens fall back to semantic colors.
+The hover card follows `GitCommitHoverPopover.tsx` but opens through the SDK
+anchor helper (250 ms open, host-managed exit grace) rather than the original
+300/150 ms timings. Native workspace integration remains deferred.
 See [Git Graph agent guidance](../../../../../.agents/git-graph.md).
 
 ## Strict TypeScript compatibility

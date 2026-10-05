@@ -24,10 +24,10 @@ export const releaseManifest = () => ({
   main: './dist/service/index.js',
   openchamber: {
     apiVersion: 1 as const,
-    engines: { openchamber: '>=2.0.1' },
+    engines: { openchamber: '>=2.1.1' },
     contributes: {
       panel: { id: 'git-graph', name: 'Git Graph', icon: 'git-branch' },
-      statusSection: { entry: 'dist/panel/status.html', title: 'Git', height: 260 },
+      statusSection: { entry: 'dist/panel/status.html', title: 'Git', height: 260, defaultExpanded: false, requiresProject: true },
       service: { entry: 'dist/service/index.js', runtime: 'host' as const, permissions: { exec: ['git'] } },
     },
   },

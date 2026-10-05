@@ -24,6 +24,8 @@ export async function createGitFixture(root: string): Promise<string> {
   await writeFile(join(repository, 'README.md'), '# Fixture\n\nChanged\n');
   await run('git', ['add', 'README.md'], repository);
   await run('git', ['commit', '-m', 'Second fixture commit'], repository);
+  // Configuration only; tests never fetch or push. It lets the hover card derive a GitHub link.
+  await run('git', ['remote', 'add', 'origin', 'https://github.com/openchamber-fixture/git-graph.git'], repository);
   await writeFile(join(repository, 'uncommitted.txt'), 'working tree change\n');
   return repository;
 }

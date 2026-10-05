@@ -1,7 +1,7 @@
 {
   "stock": {
     "repository": "openchamber/openchamber",
-    "version": "2.0.1",
-    "revision": "ffa12ea39b00c0fe1f2b9c9f56b7aefc6ff3fcce"
+    "version": "2.1.1",
+    "revision": "e302062e3be0686986594fddabdafd8a97c129e5"
   }
 }

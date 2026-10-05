@@ -28,7 +28,13 @@ try {
   const status = page.locator('[data-git-graph-status="true"]');
   await status.locator('[data-git-graph-status-commit]').first().waitFor();
   await status.locator('.git-compact-graph-segment svg').first().waitFor();
-  expect(await status.getByRole('tablist', { name: 'History mode' }).count()).toBe(1);
+  await page.waitForFunction(() => window.statusSection.hostControls().length === 2);
+  expect(await status.getByRole('tablist', { name: 'History mode' }).count()).toBe(0);
+  await page.evaluate(() => window.statusSection.triggerHostControl('range', 'all'));
+  await page.waitForFunction(() => window.statusSection.lastHistoryRefs().join(',') === '*');
+  await page.evaluate(() => window.statusSection.setHostControls(false));
+  await status.getByRole('tablist', { name: 'History mode' }).waitFor();
+  await status.locator('[data-git-graph-status-commit]').first().waitFor();
   expect(await status.getByRole('button', { name: /Open commit Commit fixture-a by Test/ }).count()).toBe(1);
   const rowBoxes = await status.locator('.git-compact-history-row').evaluateAll((rows) => rows.map((row) => {
     const box = row.getBoundingClientRect();
@@ -42,8 +48,11 @@ try {
 
   const initialRequests = await page.evaluate(() => window.statusSection.requestCount());
   await status.locator('[data-git-graph-status-commit]').first().click();
+  await status.locator('[data-git-status-file-list]').first().getByRole('button', { name: /Open full commit diff for src\/example.ts/ }).waitFor();
   await page.evaluate(() => window.statusSection.rerender());
-  expect(await page.evaluate(() => window.statusSection.requestCount())).toBe(initialRequests);
+  expect(await page.evaluate(() => window.statusSection.requestCount())).toBe(initialRequests + 1);
+  await status.locator('[data-git-status-file-list]').first().getByRole('button', { name: /Open full commit diff for src\/example.ts/ }).click();
+  expect(await page.evaluate(() => window.statusSection.openedCommit())).toBe('0123456789abcdef0123456789abcdef01234567');
 
   const history = status.locator('.git-status-commits');
   await page.evaluate(() => window.statusSection.triggerHistoryEnd());
@@ -121,10 +130,17 @@ try {
   await page.getByRole('tab', { name: 'All', exact: true }).click();
   await page.waitForFunction(() => !document.body.textContent?.includes('Could not save history preferences.'));
 
-  await page.locator('[data-git-graph-status-commit]').first().click();
-  expect(await page.evaluate(() => window.statusSection.openedCommit())).toBe('0123456789abcdef0123456789abcdef01234567');
+  await page.evaluate(() => window.statusSection.setHostControls(true));
+  await page.waitForFunction(() => window.statusSection.hostControls().length === 2);
+  expect(await status.getByRole('tablist').count()).toBe(0);
+  await page.evaluate(() => window.statusSection.triggerHostControl('range', 'all'));
+  await page.waitForFunction(() => window.statusSection.lastHistoryRefs().join(',') === '*');
+  await page.evaluate(() => window.statusSection.setHostControls(false));
+  await status.getByRole('tablist', { name: 'History mode' }).waitFor();
   await page.evaluate(() => window.statusSection.rejectNextOpen());
   await page.locator('[data-git-graph-status-commit]').first().click();
+  await status.locator('[data-git-status-file-list] button').first().waitFor();
+  await page.locator('[data-git-status-file-list] button').first().click();
   await status.getByRole('alert').waitFor();
 
   await page.evaluate(() => window.statusSection.triggerResize());

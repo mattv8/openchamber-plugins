@@ -1,0 +1,7 @@
+.git-commit-menu { box-sizing: border-box; padding: 10px; color: var(--oc-elevated-fg, CanvasText); background: var(--oc-elevated, Canvas); font: 12px/1.35 var(--oc-font, system-ui); }
+.git-commit-menu h2 { margin: 0 0 8px; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.git-commit-menu button { display: block; width: 100%; margin: 3px 0; padding: 5px 7px; color: inherit; text-align: left; background: transparent; border: 1px solid var(--oc-border, ButtonBorder); border-radius: var(--oc-radius, 4px); }
+.git-commit-menu button:focus-visible, .git-commit-menu input:focus-visible { outline: 2px solid var(--oc-focus, Highlight); outline-offset: 1px; }
+.git-commit-menu button:hover { background: color-mix(in srgb, var(--oc-hover, ButtonFace) 40%, transparent); }
+.git-commit-menu fieldset { margin: 8px 0; border-color: var(--oc-border, ButtonBorder); }
+.git-commit-menu input { width: 100%; box-sizing: border-box; padding: 5px; color: inherit; background: var(--oc-elevated, Canvas); border: 1px solid var(--oc-border, ButtonBorder); }

@@ -8,7 +8,8 @@
 .git-compact-body { display: flex; flex: 1; min-width: 0; align-items: center; gap: .375rem; }
 .git-status-section .git-ref-badges { flex-shrink: 0; }
 .git-status-section .git-ref-badge { box-sizing: border-box; }
-:root { --git-graph-1: var(--oc-primary, Highlight); --git-graph-2: var(--oc-success, CanvasText); --git-graph-3: var(--oc-warning, CanvasText); --git-graph-4: var(--oc-error, CanvasText); --git-graph-5: var(--oc-info, GrayText); }
+/* PR #3008 getGitGraphSeries order: keyword, function, type, string, variable. Older hosts lack syntax tokens. */
+:root { --git-graph-1: var(--oc-syntax-keyword, var(--oc-primary, Highlight)); --git-graph-2: var(--oc-syntax-function, var(--oc-success, CanvasText)); --git-graph-3: var(--oc-syntax-type, var(--oc-warning, CanvasText)); --git-graph-4: var(--oc-syntax-string, var(--oc-error, CanvasText)); --git-graph-5: var(--oc-syntax-variable, var(--oc-info, GrayText)); }
 body[data-surface="status"] { margin: 0; }
 .git-status-commits, .git-status-details { grid-template-columns: minmax(0, 1fr); }
 .git-status-commit { min-width: 0; }
@@ -58,3 +59,8 @@ body[data-surface="status"] { margin: 0; }
 .git-compact-graph { overflow-x: auto; }
 .git-compact-graph > button { display: flex; align-items: center; gap: .35rem; min-width: max-content; }
 @media (max-width: 700px) { .git-columns { grid-template-columns: 1fr; height: auto; overflow: visible; }.git-sidebar { overflow: visible; border-right: 0; }.git-tabs { min-height: 22rem; max-height: 55vh; }.git-history { max-height: 22rem; }.git-sidebar .git-changes { border-bottom: 1px solid var(--oc-border, ButtonBorder); } }
+.git-status-file-list { display: grid; gap: .2rem; padding: .25rem .5rem .4rem 2rem; border-top: 1px solid color-mix(in srgb, var(--oc-border, ButtonBorder) 45%, transparent); }
+.git-status-file-list label { display: grid; gap: .15rem; color: var(--oc-muted, GrayText); }
+.git-status-file { display: flex; min-width: 0; gap: .35rem; text-align: left; font-family: var(--oc-mono, ui-monospace); }
+.git-status-file > span:nth-child(2) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+.git-status-file-add { color: var(--oc-success-text, CanvasText); }.git-status-file-delete { color: var(--oc-error-text, CanvasText); }

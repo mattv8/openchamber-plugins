@@ -50,7 +50,7 @@ jobs:
           cd artifacts/git-graph
           sha256sum git-graph.zip > git-graph.zip.sha256
           plugin_sha256="$(cut -d' ' -f1 git-graph.zip.sha256)"
-          jq -n --arg sourceSHA "$SOURCE_SHA" --arg pluginVersion "$plugin_version" --arg hostSHA "ffa12ea39b00c0fe1f2b9c9f56b7aefc6ff3fcce" --arg workflowURL "$WORKFLOW_URL" --arg pluginSHA256 "$plugin_sha256" '{sourceSHA: $sourceSHA, pluginVersion: $pluginVersion, hostSHA: $hostSHA, workflowURL: $workflowURL, archive: {name: "git-graph.zip", sha256: $pluginSHA256}}' > provenance.json
+          jq -n --arg sourceSHA "$SOURCE_SHA" --arg pluginVersion "$plugin_version" --arg hostSHA "e302062e3be0686986594fddabdafd8a97c129e5" --arg workflowURL "$WORKFLOW_URL" --arg pluginSHA256 "$plugin_sha256" '{sourceSHA: $sourceSHA, pluginVersion: $pluginVersion, hostSHA: $hostSHA, workflowURL: $workflowURL, archive: {name: "git-graph.zip", sha256: $pluginSHA256}}' > provenance.json
           printf 'plugin_sha256=%s\n' "$plugin_sha256" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with: { name: git-graph-packed-plugin, path: artifacts/git-graph/, if-no-files-found: error }
@@ -70,9 +70,9 @@ jobs:
         with: { name: git-graph-packed-plugin, path: artifacts/git-graph }
       - name: Check out allowlisted v2 host source only
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
-        with: { repository: openchamber/openchamber, ref: ffa12ea39b00c0fe1f2b9c9f56b7aefc6ff3fcce, path: .cache/stock-host, persist-credentials: false }
+        with: { repository: openchamber/openchamber, ref: e302062e3be0686986594fddabdafd8a97c129e5, path: .cache/stock-host, persist-credentials: false }
       - name: Verify allowlisted host revision
-        run: test "$(git -C .cache/stock-host rev-parse HEAD)" = ffa12ea39b00c0fe1f2b9c9f56b7aefc6ff3fcce
+        run: test "$(git -C .cache/stock-host rev-parse HEAD)" = e302062e3be0686986594fddabdafd8a97c129e5
       - name: Build the allowlisted web host
         working-directory: .cache/stock-host
         run: |

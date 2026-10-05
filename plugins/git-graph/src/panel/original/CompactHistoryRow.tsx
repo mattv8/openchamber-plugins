@@ -1,4 +1,5 @@
 import { GitGraphSegment } from './GitGraphSegment.js';
+import type React from 'react';
 import { buildGitRefBadgePresentation } from './gitRefBadges.js';
 import { GitRefIcon } from './GitRefIcon.js';
 import type { GitHistoryGraphRef, GitHistoryItemViewModel } from './gitGraph.js';
@@ -8,9 +9,12 @@ function badgeClass(kind: 'head' | 'local' | 'remote' | 'tag', hasColor: boolean
   return `git-ref-badge git-ref-badge-${kind}`;
 }
 
-export function CompactHistoryRow({ viewModel, onOpenCommit, t }: {
+export function CompactHistoryRow({ viewModel, expanded = false, onToggle, hoverAnchor, menuTrigger, t }: {
   viewModel: GitHistoryItemViewModel;
-  onOpenCommit?(commit: string): void;
+  expanded?: boolean;
+  onToggle?(commit: string): void;
+  hoverAnchor?(element: HTMLElement | null): void;
+  menuTrigger?: { onContextMenu(event: React.MouseEvent<HTMLElement>): void; onKeyDown(event: React.KeyboardEvent<HTMLElement>): void };
   t(key: string, values?: Record<string, string | number>): string;
 }) {
   const { historyItem } = viewModel;
@@ -33,5 +37,5 @@ export function CompactHistoryRow({ viewModel, onOpenCommit, t }: {
     </div>
   </>;
   if (!actionable) return <div className="git-compact-history-row git-compact-history-row-static" data-git-graph-status-commit={historyItem.id}>{content}</div>;
-  return <button type="button" className="git-compact-history-row" data-git-graph-status-commit={historyItem.id} aria-label={ariaLabel} title={tagNames} onClick={() => onOpenCommit?.(historyItem.id)}>{content}</button>;
+  return <button ref={hoverAnchor} type="button" className="git-compact-history-row" data-git-graph-status-commit={historyItem.id} aria-label={ariaLabel} title={tagNames} aria-expanded={expanded} aria-controls={`git-status-files-${historyItem.id}`} onClick={() => onToggle?.(historyItem.id)} onContextMenu={menuTrigger?.onContextMenu} onKeyDown={menuTrigger?.onKeyDown}>{content}</button>;
 }

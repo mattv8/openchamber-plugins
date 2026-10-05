@@ -66,6 +66,7 @@ export const GitGraphRequestSchema = z.discriminatedUnion('operation', [
   ReadRequestSchema,
   MutationRequestSchema,
   RequestBase.extend({ operation: z.literal('jobs/get'), jobId: Id }),
+  RequestBase.extend({ operation: z.literal('operations/get'), operationId: OperationId }),
   SnapshotRequest.extend({ operation: z.literal('refresh') }),
 ]);
 
@@ -92,9 +93,10 @@ export const GitGraphSuccessResponseSchema = z.discriminatedUnion('operation', [
   z.object({ version: z.literal(PROTOCOL_VERSION), requestId: Id, operation: z.literal('read'), ok: z.literal(true), data: z.union([ReadDataSchema, JobReferenceSchema]) }),
   z.object({ version: z.literal(PROTOCOL_VERSION), requestId: Id, operation: z.literal('mutate'), ok: z.literal(true), data: z.union([z.object({ operationId: OperationId, snapshot: Snapshot, result: z.object({ state: z.enum(['completed', 'conflict']), message: z.string().max(8192).nullable() }) }), JobReferenceSchema]) }),
   z.object({ version: z.literal(PROTOCOL_VERSION), requestId: Id, operation: z.literal('jobs/get'), ok: z.literal(true), data: z.object({ jobId: Id, state: z.enum(['queued', 'running', 'completed', 'failed', 'unknown']), data: z.union([ReadDataSchema, z.object({ operationId: OperationId, snapshot: Snapshot, result: z.object({ state: z.enum(['completed', 'conflict']), message: z.string().max(8192).nullable() }) })]).nullable(), result: z.object({ operationId: OperationId, snapshot: Snapshot }).nullable().optional(), error: ErrorData.nullable() }) }),
+  z.object({ version: z.literal(PROTOCOL_VERSION), requestId: Id, operation: z.literal('operations/get'), ok: z.literal(true), data: z.object({ operationId: OperationId, state: z.enum(['running', 'completed', 'failed', 'unknown', 'absent']), jobId: Id.nullable(), snapshot: Snapshot.nullable(), error: ErrorData.nullable() }) }),
   z.object({ version: z.literal(PROTOCOL_VERSION), requestId: Id, operation: z.literal('refresh'), ok: z.literal(true), data: z.object({ snapshot: Snapshot, changed: z.boolean() }) }),
 ]);
-export const GitGraphErrorResponseSchema = z.object({ version: z.literal(PROTOCOL_VERSION), requestId: Id, operation: z.enum(['repo/open', 'read', 'mutate', 'jobs/get', 'refresh']), ok: z.literal(false), error: ErrorData });
+export const GitGraphErrorResponseSchema = z.object({ version: z.literal(PROTOCOL_VERSION), requestId: Id, operation: z.enum(['repo/open', 'read', 'mutate', 'jobs/get', 'operations/get', 'refresh']), ok: z.literal(false), error: ErrorData });
 export const GitGraphResponseSchema = z.union([GitGraphSuccessResponseSchema, GitGraphErrorResponseSchema]);
 
 export type GitGraphRequest = z.infer<typeof GitGraphRequestSchema>;

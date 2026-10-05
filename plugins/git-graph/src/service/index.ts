@@ -18,12 +18,13 @@ const MAX_HUNKS = 2_000;
 const MAX_OPERATIONS = 256;
 type MutationData = { operationId: string; snapshot: string; result: { state: 'completed' | 'conflict'; message: string | null } };
 type JobData = Exclude<Extract<GitGraphResponse, { ok: true; operation: 'read' }>['data'], { jobId: string }> | MutationData;
-type Operation = { repositoryId: string; identity: string; jobId: string; createdAt: number; state: 'pending' | 'completed' | 'unknown'; snapshot: string | null };
+type OperationError = { code: ServiceError['code']; message: string; retryable: boolean };
+type Operation = { repositoryId: string; identity: string; jobId: string; createdAt: number; state: 'pending' | 'completed' | 'failed' | 'unknown'; snapshot: string | null; error?: OperationError };
 type Journal = Record<string, Operation>;
 
 const digest = (value: string) => createHash('sha256').update(value).digest('hex');
 const responseHeaders = { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' };
-const operationForPath: Record<string, GitGraphRequest['operation']> = { '/repo/open': 'repo/open', '/read': 'read', '/mutate': 'mutate', '/jobs/get': 'jobs/get', '/refresh': 'refresh' };
+const operationForPath: Record<string, GitGraphRequest['operation']> = { '/repo/open': 'repo/open', '/read': 'read', '/mutate': 'mutate', '/jobs/get': 'jobs/get', '/operations/get': 'operations/get', '/refresh': 'refresh' };
 
 function publicError(caught: unknown): ServiceError {
   return caught instanceof ServiceError ? caught : new ServiceError('internal', 'Internal service error');
@@ -77,7 +78,7 @@ async function readIncomingBody(request: IncomingMessage): Promise<Buffer> {
   return Buffer.concat(chunks);
 }
 
-export function createGitService({ token = randomUUID(), timeoutMs = 20_000 }: { token?: string; timeoutMs?: number } = {}) {
+export function createGitService({ token = randomUUID(), timeoutMs = 20_000, jobMaximum, jobRetentionMs, jobConcurrency }: { token?: string; timeoutMs?: number; jobMaximum?: number; jobRetentionMs?: number; jobConcurrency?: number } = {}) {
   const repositories = new Map<string, Repository>();
   const hunks = new Map<string, HunkRecord>();
   const queues = new Map<string, Promise<void>>();
@@ -87,7 +88,7 @@ export function createGitService({ token = randomUUID(), timeoutMs = 20_000 }: {
   const submissions = new Map<string, Promise<MutationData | { jobId: string; state: 'queued' | 'running'; acceptedAt: number }>>();
   let closed = false;
   const runGit = createGitRunner(timeoutMs);
-  const jobs = createJobStore<JobData>();
+  const jobs = createJobStore<JobData>(jobMaximum, jobRetentionMs, jobConcurrency);
   const watcher = createRepositoryWatcher((repositoryId) => { const repository = repositories.get(repositoryId); if (repository) void refreshRepository(repository, runGit).catch(() => undefined); });
   const context: ServiceContext = {
     runGit,
@@ -99,8 +100,9 @@ export function createGitService({ token = randomUUID(), timeoutMs = 20_000 }: {
   const operationKey = (repository: Repository, operationId: string) => `${repository.id}:${operationId}`;
   const isOperation = (value: unknown): value is Operation => {
     if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
-    const record = value as { repositoryId?: unknown; identity?: unknown; jobId?: unknown; createdAt?: unknown; state?: unknown; snapshot?: unknown };
-    return typeof record.repositoryId === 'string' && typeof record.identity === 'string' && typeof record.jobId === 'string' && Number.isSafeInteger(record.createdAt) && ['pending', 'completed', 'unknown'].includes(String(record.state)) && (typeof record.snapshot === 'string' || record.snapshot === null);
+    const record = value as { repositoryId?: unknown; identity?: unknown; jobId?: unknown; createdAt?: unknown; state?: unknown; snapshot?: unknown; error?: unknown };
+    const validError = record.error === undefined || (!!record.error && typeof record.error === 'object' && typeof (record.error as OperationError).code === 'string' && typeof (record.error as OperationError).message === 'string' && typeof (record.error as OperationError).retryable === 'boolean');
+    return typeof record.repositoryId === 'string' && typeof record.identity === 'string' && typeof record.jobId === 'string' && Number.isSafeInteger(record.createdAt) && ['pending', 'completed', 'failed', 'unknown'].includes(String(record.state)) && (typeof record.snapshot === 'string' || record.snapshot === null) && validError;
   };
   const loadJournal = async (repository: Repository): Promise<Journal> => {
     try {
@@ -113,7 +115,10 @@ export function createGitService({ token = randomUUID(), timeoutMs = 20_000 }: {
     catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return {}; throw new ServiceError('internal', 'Unable to read operation journal'); }
   };
   const saveJournal = async (repository: Repository, journal: Journal) => {
-    const entries = Object.entries(journal).sort(([, a], [, b]) => b.createdAt - a.createdAt).slice(0, MAX_OPERATIONS);
+    const ordered = Object.entries(journal).sort(([, a], [, b]) => b.createdAt - a.createdAt);
+    const pending = ordered.filter(([, operation]) => operation.state === 'pending');
+    if (pending.length > MAX_OPERATIONS) throw new ServiceError('repository-busy', 'Service operation capacity is full', true);
+    const entries = [...pending, ...ordered.filter(([, operation]) => operation.state !== 'pending').slice(0, MAX_OPERATIONS - pending.length)];
     const temporary = `${journalPath(repository)}.${randomUUID()}.tmp`;
     await writeFile(temporary, JSON.stringify(Object.fromEntries(entries)), { mode: 0o600 });
     await rename(temporary, journalPath(repository));
@@ -153,6 +158,8 @@ export function createGitService({ token = randomUUID(), timeoutMs = 20_000 }: {
     if (inMemory) {
       if (inMemory.identity !== identity) throw new ServiceError('conflict', 'Operation ID was reused with another payload');
       if (inMemory.state === 'completed' && inMemory.snapshot) return { operationId: request.operationId, snapshot: inMemory.snapshot, result: { state: 'completed' as const, message: null } };
+      if (inMemory.state === 'failed' && inMemory.error) throw new ServiceError(inMemory.error.code, inMemory.error.message, inMemory.error.retryable);
+      if (inMemory.state === 'unknown') throw new ServiceError('timeout-unknown', 'Operation outcome is unknown', true);
       return { jobId: inMemory.jobId, state: 'running' as const, acceptedAt: inMemory.createdAt };
     }
     const reserved: Operation = { repositoryId: repository.id, identity, jobId: randomUUID().replaceAll('-', ''), createdAt: Date.now(), state: 'pending', snapshot: null };
@@ -162,30 +169,62 @@ export function createGitService({ token = randomUUID(), timeoutMs = 20_000 }: {
       if (!candidate) { operations.delete(key); throw new ServiceError('repository-busy', 'Service operation capacity is full', true); }
       operations.delete(candidate[0]);
     }
-    const remembered = await journalTransaction(repository, async () => {
-      const journal = await loadJournal(repository);
-      const found = journal[key];
-      if (found) return found;
-      await saveJournal(repository, { ...journal, [key]: reserved });
-      return undefined;
-    });
+    let remembered: Operation | undefined;
+    try {
+      remembered = await journalTransaction(repository, async () => {
+        const journal = await loadJournal(repository);
+        const found = journal[key];
+        if (found) return found;
+        await saveJournal(repository, { ...journal, [key]: reserved });
+        return undefined;
+      });
+    } catch (error) { operations.delete(key); throw error; }
     if (remembered) {
       if (remembered.identity !== identity) throw new ServiceError('conflict', 'Operation ID was reused with another payload');
       operations.delete(key);
-      if (remembered.repositoryId !== repository.id || remembered.state !== 'completed' || !remembered.snapshot) throw new ServiceError('timeout-unknown', 'Operation outcome is unknown after service restart', true);
+      if (remembered.repositoryId !== repository.id) throw new ServiceError('timeout-unknown', 'Operation outcome is unknown after service restart', true);
+      if (remembered.state === 'failed' && remembered.error) throw new ServiceError(remembered.error.code, remembered.error.message, remembered.error.retryable);
+      if (remembered.state !== 'completed' || !remembered.snapshot) throw new ServiceError('timeout-unknown', 'Operation outcome is unknown after service restart', true);
       return { operationId: request.operationId, snapshot: remembered.snapshot, result: { state: 'completed' as const, message: null } };
     }
-    if (closed) { operations.delete(key); throw new ServiceError('internal', 'Service is closed'); }
-    const accepted = jobs.submit(async () => serialized(repository, async () => {
-      await context.refresh(repository);
-      if (repository.snapshot !== request.expectedSnapshot) throw new ServiceError('snapshot-conflict', 'Repository changed; refresh before mutating', true);
-      await mutateRepository(context, repository, request.action as GitGraphMutation);
-      await context.refresh(repository);
-      reserved.state = 'completed'; reserved.snapshot = repository.snapshot;
-      if (!closed) await journalTransaction(repository, async () => { const journal = await loadJournal(repository); await saveJournal(repository, { ...journal, [key]: reserved }); });
-      return { operationId: request.operationId, snapshot: repository.snapshot, result: { state: 'completed' as const, message: null } };
-    }));
+    const recordKnownFailure = async (error: ServiceError) => {
+      reserved.state = 'failed'; reserved.error = { code: error.code, message: error.message, retryable: error.retryable };
+      try { await journalTransaction(repository, async () => { const journal = await loadJournal(repository); await saveJournal(repository, { ...journal, [key]: reserved }); }); } catch { /* Preserve the mutation failure rather than replacing it with journal I/O. */ }
+    };
+    const recordUnknownFailure = async () => {
+      reserved.state = 'unknown'; reserved.snapshot = null; delete reserved.error;
+      try { await journalTransaction(repository, async () => { const journal = await loadJournal(repository); await saveJournal(repository, { ...journal, [key]: reserved }); }); } catch { /* Preserve the mutation failure rather than replacing it with journal I/O. */ }
+    };
+    if (closed) { const error = new ServiceError('internal', 'Service is closed'); await recordKnownFailure(error); throw error; }
+    let accepted: { jobId: string; state: 'queued'; acceptedAt: number };
+    try {
+      accepted = jobs.submit(async () => serialized(repository, async () => {
+        await context.refresh(repository);
+        if (repository.snapshot !== request.expectedSnapshot) {
+          const error = new ServiceError('snapshot-conflict', 'Repository changed; refresh before mutating', true);
+          await recordKnownFailure(error); throw error;
+        }
+        try { await mutateRepository(context, repository, request.action as GitGraphMutation); }
+        catch (caught) {
+          if (caught instanceof ServiceError && ['invalid-request', 'not-found', 'repository-busy', 'conflict'].includes(caught.code)) await recordKnownFailure(caught);
+          else await recordUnknownFailure();
+          throw caught;
+        }
+        try {
+          await context.refresh(repository);
+          reserved.state = 'completed'; reserved.snapshot = repository.snapshot;
+          if (!closed) await journalTransaction(repository, async () => { const journal = await loadJournal(repository); await saveJournal(repository, { ...journal, [key]: reserved }); });
+        } catch (caught) { await recordUnknownFailure(); throw caught; }
+        return { operationId: request.operationId, snapshot: repository.snapshot, result: { state: 'completed' as const, message: null } };
+      }));
+    } catch (caught) {
+      const error = caught instanceof ServiceError ? caught : new ServiceError('internal', 'Unable to submit mutation');
+      await recordKnownFailure(error); throw caught;
+    }
     reserved.jobId = accepted.jobId;
+    try {
+      await journalTransaction(repository, async () => { const journal = await loadJournal(repository); await saveJournal(repository, { ...journal, [key]: reserved }); });
+    } catch { /* The durable pending reservation remains; do not hide an accepted job that may already be running. */ }
     jobRepositories.set(accepted.jobId, repository.id);
     return { ...accepted, jobId: accepted.jobId, state: accepted.state };
   };
@@ -224,6 +263,25 @@ export function createGitService({ token = randomUUID(), timeoutMs = 20_000 }: {
       } else if (parsed.operation === 'refresh') {
         const repository = repositoryFor(parsed.repositoryId); const previous = repository.snapshot; await context.refresh(repository);
         body = { version: PROTOCOL_VERSION, requestId: parsed.requestId, operation: parsed.operation, ok: true, data: { snapshot: repository.snapshot, changed: previous !== repository.snapshot } };
+      } else if (parsed.operation === 'operations/get') {
+        const repository = repositoryFor(parsed.repositoryId); const key = operationKey(repository, parsed.operationId); const inMemory = operations.get(key);
+        if (inMemory) {
+          if (inMemory.state === 'completed' && inMemory.snapshot) body = { version: PROTOCOL_VERSION, requestId: parsed.requestId, operation: parsed.operation, ok: true, data: { operationId: parsed.operationId, state: 'completed', jobId: inMemory.jobId, snapshot: inMemory.snapshot, error: null } };
+          else if (inMemory.state === 'failed') body = { version: PROTOCOL_VERSION, requestId: parsed.requestId, operation: parsed.operation, ok: true, data: { operationId: parsed.operationId, state: 'failed', jobId: inMemory.jobId, snapshot: null, error: inMemory.error ? { ...inMemory.error, snapshot: null } : null } };
+          else if (inMemory.state === 'unknown') body = { version: PROTOCOL_VERSION, requestId: parsed.requestId, operation: parsed.operation, ok: true, data: { operationId: parsed.operationId, state: 'unknown', jobId: inMemory.jobId, snapshot: null, error: null } };
+          else {
+          const job = jobs.get(inMemory.jobId);
+          if (!job || job.state === 'unknown') body = { version: PROTOCOL_VERSION, requestId: parsed.requestId, operation: parsed.operation, ok: true, data: { operationId: parsed.operationId, state: 'unknown', jobId: inMemory.jobId, snapshot: null, error: null } };
+          else if (job.state === 'queued' || job.state === 'running') body = { version: PROTOCOL_VERSION, requestId: parsed.requestId, operation: parsed.operation, ok: true, data: { operationId: parsed.operationId, state: 'running', jobId: inMemory.jobId, snapshot: null, error: null } };
+          else if (job.state === 'completed') body = { version: PROTOCOL_VERSION, requestId: parsed.requestId, operation: parsed.operation, ok: true, data: { operationId: parsed.operationId, state: 'completed', jobId: inMemory.jobId, snapshot: inMemory.snapshot, error: null } };
+          else if (job.state === 'failed') body = { version: PROTOCOL_VERSION, requestId: parsed.requestId, operation: parsed.operation, ok: true, data: { operationId: parsed.operationId, state: 'failed', jobId: inMemory.jobId, snapshot: null, error: { code: job.error.code, message: job.error.message, retryable: job.error.retryable, snapshot: null } } };
+          else body = { version: PROTOCOL_VERSION, requestId: parsed.requestId, operation: parsed.operation, ok: true, data: { operationId: parsed.operationId, state: 'unknown', jobId: inMemory.jobId, snapshot: null, error: null } };
+          }
+        } else {
+          const journal = await loadJournal(repository); const saved = journal[key];
+          const state = !saved ? 'absent' : saved.state === 'completed' ? 'completed' : saved.state === 'failed' ? 'failed' : 'unknown';
+          body = { version: PROTOCOL_VERSION, requestId: parsed.requestId, operation: parsed.operation, ok: true, data: { operationId: parsed.operationId, state, jobId: null, snapshot: state === 'completed' ? saved?.snapshot ?? null : null, error: state === 'failed' && saved?.error ? { ...saved.error, snapshot: null } : null } };
+        }
       } else {
         if (jobRepositories.get(parsed.jobId) !== parsed.repositoryId) throw new ServiceError('not-found', 'Job was not found for this repository');
         const job = jobs.get(parsed.jobId);

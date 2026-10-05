@@ -8,10 +8,10 @@
   "main": "./dist/service/index.js",
   "openchamber": {
     "apiVersion": 1,
-    "engines": { "openchamber": ">=2.0.1" },
+    "engines": { "openchamber": ">=2.1.1" },
     "contributes": {
       "panel": { "id": "git-graph", "name": "Git Graph", "icon": "git-branch" },
-      "statusSection": { "entry": "dist/panel/status.html", "title": "Git", "height": 260 },
+      "statusSection": { "entry": "dist/panel/status.html", "title": "Git", "height": 260, "defaultExpanded": false, "requiresProject": true },
       "service": { "entry": "dist/service/index.js", "runtime": "host", "permissions": { "exec": ["git"] } }
     }
   },
@@ -20,7 +20,7 @@
     "package": "bun run ../../tooling/package.ts git-graph"
   },
   "dependencies": {
-    "@openchamber/sdk": "2.0.1",
+    "@openchamber/sdk": "2.1.1",
     "diff": "^8.0.2",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",

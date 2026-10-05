@@ -7,11 +7,11 @@ describe('Git Graph release validation', () => {
     const manifest = releaseManifest();
     const parsed = parseManifestJson(JSON.stringify(manifest));
     expect(parsed.ok).toBe(true);
-    expect(manifest.openchamber.engines.openchamber).toBe('>=2.0.1');
+    expect(manifest.openchamber.engines.openchamber).toBe('>=2.1.1');
     expect(manifest.openchamber.contributes.panel).toEqual({ id: 'git-graph', name: 'Git Graph', icon: 'git-branch' });
     expect('entry' in manifest.openchamber.contributes.panel).toBe(false);
     expect('page' in manifest.openchamber.contributes).toBe(false);
-    expect(manifest.openchamber.contributes.statusSection).toEqual({ entry: 'dist/panel/status.html', title: 'Git', height: 260 });
+    expect(manifest.openchamber.contributes.statusSection).toEqual({ entry: 'dist/panel/status.html', title: 'Git', height: 260, defaultExpanded: false, requiresProject: true });
   });
 
   test('uses the source package version without a RELEASE_VERSION override', () => {

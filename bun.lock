@@ -6,7 +6,7 @@
       "name": "openchamber-plugins",
       "devDependencies": {
         "@eslint/js": "^9.33.0",
-        "@openchamber/sdk": "2.0.1",
+        "@openchamber/sdk": "2.1.1",
         "@types/bun": "^1.2.20",
         "@types/node": "^24.3.1",
         "@types/react": "^19.1.10",
@@ -22,7 +22,7 @@
       "name": "@openchamber-plugin/git-graph",
       "version": "0.1.0",
       "dependencies": {
-        "@openchamber/sdk": "2.0.1",
+        "@openchamber/sdk": "2.1.1",
         "diff": "^8.0.2",
         "react": "^19.1.1",
         "react-dom": "^19.1.1",
@@ -66,7 +66,7 @@
 
     "@openchamber-plugin/git-graph": ["@openchamber-plugin/git-graph@workspace:plugins/git-graph"],
 
-    "@openchamber/sdk": ["@openchamber/sdk@2.0.1", "", { "dependencies": { "zod": "^4.3.6" }, "bin": { "openchamber-guest-bundle": "scripts/bundle-guest.ts" } }, "sha512-u+ccZnOtH5JT8wLRecOQ4xYhl+b49+FHQv9ot8lWyZRHnacsE4JKeSukBlExZ54zE6F94R8aChaKhb6U6cAUBQ=="],
+    "@openchamber/sdk": ["@openchamber/sdk@2.1.1", "", { "dependencies": { "zod": "^4.3.6" }, "bin": { "openchamber-guest-bundle": "scripts/bundle-guest.ts" } }, "sha512-Hhxkn7DlDXlBpztYLdPmTZAa7qztuM3FmtZfWZaNwA5Em4CH+UGKHo7MhAgof2cnbxwnhvafiZdgvwyWy41DlA=="],
 
     "@simple-git/args-pathspec": ["@simple-git/args-pathspec@1.0.3", "", {}, "sha512-ngJMaHlsWDTfjyq9F3VIQ8b7NXbBLq5j9i5bJ6XLYtD6qlDXT7fdKY2KscWWUF8t18xx052Y/PUO1K1TRc9yKA=="],
 

@@ -1,0 +1,16 @@
+export const statusMessages: Record<string, string> = {
+  'status.range': 'Range',
+  'status.sectionLabel': 'Git commit history',
+  'status.commitList': 'Commits',
+  'status.notRepository': 'This folder is not a Git repository.',
+  'status.filesLoading': 'Loading changed files…',
+  'status.filesError': 'Could not load changed files.',
+  'status.filesFor': 'Changed files for {subject}',
+  'status.openCommitFile': 'Open full commit diff for {path} — {subject}',
+  'status.openCommitViaFile': 'Opens the full commit diff',
+  'status.filesMore': '{count} more files',
+  'status.recoveryRunning': 'A Git operation is still running.',
+  'status.recoveryFailed': 'A Git operation failed: {message}',
+  'status.recoveryUnknown': 'A Git operation outcome is unknown.',
+  'status.acknowledge': 'Acknowledge',
+};

@@ -1,0 +1,8 @@
+body[data-surface="popover"] { margin: 0; background: transparent; color: var(--oc-elevated-fg, CanvasText); font: 12px/1.35 var(--oc-font, system-ui, sans-serif); }
+.git-commit-hover { box-sizing: border-box; padding: 10px; background: transparent; }
+.git-commit-hover-author, .git-commit-hover-actions, .git-commit-hover-refs, .git-commit-hover-stats { display: flex; align-items: center; gap: .4rem; flex-wrap: wrap; margin-bottom: .45rem; }
+.git-commit-hover-initials { display: grid; width: 20px; height: 20px; place-items: center; border-radius: 4px; background: var(--oc-selection, Highlight); color: var(--oc-selection-fg, HighlightText); font-size: 10px; font-weight: 600; }
+.git-commit-hover-email, .git-commit-hover-meta, .git-commit-hover-stats, .git-commit-hover-body { color: var(--oc-muted, GrayText); font-size: 11px; }
+.git-commit-hover-body { max-height: 160px; margin: .25rem 0 .45rem; overflow-y: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+.git-commit-hover-add { color: var(--oc-success-text, CanvasText); }.git-commit-hover-remove, .git-commit-hover-error { color: var(--oc-error-text, CanvasText); }
+.git-commit-hover-actions code { margin-right: auto; font-family: var(--oc-mono, ui-monospace); }.git-commit-hover-actions button { color: inherit; background: var(--oc-elevated, ButtonFace); border: 1px solid var(--oc-border, ButtonBorder); border-radius: .25rem; padding: .2rem .4rem; }.git-popover-error { padding: .75rem; color: var(--oc-error-text, CanvasText); }

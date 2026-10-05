@@ -127,33 +127,126 @@ async function checkActualBehavior(name: string, failures: string[], action: () 
   }
 }
 
-async function verifyStatusSection(page: Page, evidenceRoot: string): Promise<string[]> {
+async function verifyStatusSection(page: Page, evidenceRoot: string, fixture: string): Promise<string[]> {
   const failures: string[] = [];
-  await checkActualBehavior('work-status mounts the Git Graph section and folds its status frame', failures, async () => {
-    const workStatusToggle = page.getByRole('button', { name: 'Toggle work-status panel' });
+  await mkdir(evidenceRoot, { recursive: true });
+  const workStatusToggle = page.getByRole('button', { name: 'Toggle work-status panel' });
+  const workStatus = page.getByRole('complementary', { name: 'Work status' });
+  const toggle = workStatus.getByRole('button', { name: 'Git', exact: true });
+  const section = toggle.locator('xpath=ancestor::section');
+  const frame = section.frameLocator('iframe');
+  const popover = page.locator('[data-guest-popover-overlay] iframe').contentFrame();
+  const openSection = async () => {
     if (await workStatusToggle.getAttribute('aria-pressed') !== 'true') await workStatusToggle.click({ timeout: 30_000 });
-    const toggle = page.getByRole('complementary', { name: 'Work status' }).getByRole('button', { name: 'Git', exact: true });
-    const section = toggle.locator('xpath=ancestor::section');
     await section.waitFor({ state: 'visible', timeout: 15_000 });
     if (await toggle.getAttribute('aria-expanded') !== 'true') await toggle.click();
-    const frame = section.frameLocator('iframe');
-    await frame.locator('[data-git-graph-status="true"]').waitFor({ state: 'visible', timeout: 15_000 });
-    for (const mode of ['Auto', 'All', 'Manual']) await frame.getByRole('tab', { name: mode, exact: true }).click();
-    await frame.locator('[data-git-graph-status="true"] input[type="checkbox"]').first().waitFor({ state: 'visible', timeout: 15_000 });
-    await frame.getByRole('tab', { name: 'Auto', exact: true }).click();
-    await frame.getByText('Second fixture commit', { exact: true }).click();
-    // Native commit navigation closes Work Status; reopen it before testing collapse.
-    await page.locator('[data-context-panel="true"]').waitFor({ state: 'visible', timeout: 15_000 });
-    if (await workStatusToggle.getAttribute('aria-pressed') !== 'true') await workStatusToggle.click();
-    await toggle.waitFor({ state: 'visible', timeout: 15_000 });
-    await toggle.click();
-    await section.locator('iframe').waitFor({ state: 'detached', timeout: 15_000 });
-    if (await workStatusToggle.getAttribute('aria-pressed') === 'true') await workStatusToggle.click({ timeout: 15_000 });
+    await frame.getByRole('button', { name: /Second fixture commit/ }).waitFor({ state: 'visible', timeout: 20_000 });
+  };
+
+  await checkActualBehavior('the Git section starts collapsed and expands to the graph', failures, async () => {
+    if (await workStatusToggle.getAttribute('aria-pressed') !== 'true') await workStatusToggle.click({ timeout: 30_000 });
+    await section.waitFor({ state: 'visible', timeout: 15_000 });
+    if (await toggle.getAttribute('aria-expanded') !== 'false') throw new Error('fresh Git section was not collapsed by default');
+    await openSection();
   });
 
-  await mkdir(evidenceRoot, { recursive: true });
-  await page.screenshot({ path: join(evidenceRoot, 'v2-status-section.png'), fullPage: true });
+  await checkActualBehavior('host header Range control switches history and Refresh reloads it', failures, async () => {
+    await openSection();
+    if (await frame.getByRole('tab', { name: 'Auto', exact: true }).count() !== 0) throw new Error('body controls rendered although the host supports header controls');
+    const range = section.getByRole('button', { name: /^Range/ });
+    await range.click();
+    await page.getByRole('menuitemradio', { name: 'All', exact: true }).click();
+    // Host radio menus stay open after a choice; dismiss before reopening.
+    await page.keyboard.press('Escape');
+    await section.getByRole('button', { name: /^Range: All/ }).waitFor({ timeout: 10_000 });
+    // Each load toggles the host-rendered Refresh control; reopen the menu once the reload settles.
+    await section.getByRole('button', { name: 'Refresh', exact: true }).and(page.locator(':enabled')).waitFor({ timeout: 15_000 });
+    await frame.locator('[aria-busy="true"]').waitFor({ state: 'detached', timeout: 15_000 });
+    await section.getByRole('button', { name: /^Range/ }).click();
+    await page.getByRole('menuitemradio', { name: 'Auto', exact: true }).click();
+    await page.keyboard.press('Escape');
+    await section.getByRole('button', { name: 'Refresh', exact: true }).click();
+    await frame.getByRole('button', { name: /Second fixture commit/ }).waitFor({ state: 'visible', timeout: 15_000 });
+    // Refresh disables itself while loading; wait for the reload to finish before the next step.
+    await section.getByRole('button', { name: 'Refresh', exact: true }).and(page.locator(':enabled')).waitFor({ timeout: 15_000 });
+  });
 
+  await checkActualBehavior('hovering a commit shows its card outside the status frame without taking focus', failures, async () => {
+    await openSection();
+    // A reload can leave the pointer over another row; let any earlier preview close first.
+    await page.mouse.move(10, 10);
+    await page.locator('[data-guest-popover-overlay]').waitFor({ state: 'detached', timeout: 10_000 });
+    const target = frame.getByRole('button', { name: /Second fixture commit/ });
+    const commit = await target.getAttribute('data-git-graph-status-commit');
+    // The Work Status panel may still be settling after the reload; hover only once the row stops moving.
+    let box = await target.boundingBox();
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      await page.waitForTimeout(150);
+      const next = await target.boundingBox();
+      if (box && next && next.x === box.x && next.y === box.y) break;
+      box = next;
+    }
+    if (!box) throw new Error('commit row has no layout box');
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2, { steps: 4 });
+    const card = popover.locator(`[data-git-graph-commit-hover="${commit}"]`);
+    await card.waitFor({ state: 'visible', timeout: 20_000 }).catch(async () => {
+      const shown = await popover.locator('[data-git-graph-commit-hover]').getAttribute('data-git-graph-commit-hover', { timeout: 500 }).catch(() => 'none');
+      const rows = await frame.locator('[data-git-graph-status-commit]').evaluateAll((items) => items.map((row) => [row.getAttribute('data-git-graph-status-commit')?.slice(0, 8), row.getAttribute('data-oc-popover-open'), row.getAttribute('aria-label'), row.matches(':hover'), Math.round(row.getBoundingClientRect().top)]));
+      const frameBox = await section.locator('iframe').boundingBox();
+      throw new Error(`no card for ${commit}; overlays=${await page.locator('[data-guest-popover-overlay]').count()} shown=${shown} rows=${JSON.stringify(rows)} box=${JSON.stringify(box)} frame=${JSON.stringify(frameBox)} popoverBody=${(await popover.locator('body').innerText({ timeout: 500 }).catch(() => '')).slice(0, 200)}`);
+    });
+    const cardText = await card.textContent({ timeout: 5_000 }) ?? '';
+    await page.screenshot({ path: join(evidenceRoot, 'v2-hover-card.png') });
+    for (const text of ['Second fixture commit', 'Git Graph Test', 'git-graph-test@example.invalid']) if (!cardText.includes(text)) throw new Error(`hover card lacks ${text}: ${cardText}`);
+    const stillOpen: string[] = [];
+    for (let index = 0; index < 4; index += 1) { await page.waitForTimeout(250); stillOpen.push(String(await page.locator('[data-guest-popover-overlay]').count())); }
+    if (stillOpen.includes('0')) throw new Error(`hover card closed while the pointer stayed on its row: ${stillOpen.join(',')}`);
+    await card.getByText(/1 file changed/).waitFor({ timeout: 10_000 });
+    await card.getByRole('button', { name: /GitHub/ }).waitFor({ timeout: 10_000 });
+    const overlay = await page.locator('[data-guest-popover-overlay]').boundingBox();
+    const owner = await section.locator('iframe').boundingBox();
+    if (!overlay || !owner || overlay.x + overlay.width > owner.x + 1) throw new Error('hover card is not placed outside (left of) the status frame');
+    if (await page.evaluate(() => Boolean(document.activeElement?.closest('[data-guest-popover-overlay]')))) throw new Error('hover card took keyboard focus');
+    await page.screenshot({ path: join(evidenceRoot, 'v2-hover-card.png') });
+    await page.mouse.move(10, 10);
+    await page.locator('[data-guest-popover-overlay]').waitFor({ state: 'detached', timeout: 10_000 });
+  });
+
+  await checkActualBehavior('clicking a commit expands its files and a file opens the native commit diff', failures, async () => {
+    await openSection();
+    const row = frame.getByRole('button', { name: /Second fixture commit/ });
+    await row.click();
+    if (await row.getAttribute('aria-expanded') !== 'true') throw new Error('row did not report its expanded file list');
+    const file = frame.locator('[data-git-status-file-list] button', { hasText: 'README.md' });
+    await file.waitFor({ state: 'visible', timeout: 15_000 });
+    await page.screenshot({ path: join(evidenceRoot, 'v2-file-list.png') });
+    await file.click();
+    await page.locator('[data-context-panel="true"]').waitFor({ state: 'visible', timeout: 15_000 });
+  });
+
+  await checkActualBehavior('the context menu creates a tag through the plugin service and the graph shows it', failures, async () => {
+    await openSection();
+    await frame.getByRole('button', { name: /Initial fixture/ }).click({ button: 'right' });
+    await popover.getByRole('button', { name: /Create tag/ }).click({ timeout: 20_000 });
+    await popover.getByRole('textbox', { name: 'Tag name' }).fill('graph-test-tag');
+    await popover.getByRole('button', { name: 'Create tag', exact: true }).click();
+    const view = popover.locator('[data-commit-menu-view]').first();
+    await popover.locator('[data-commit-menu-view="confirm"]').waitFor({ timeout: 20_000 }).catch(async () => { throw new Error(`menu showed ${await view.getAttribute('data-commit-menu-view')}: ${await view.innerText()}`); });
+    await page.screenshot({ path: join(evidenceRoot, 'v2-menu-confirm.png') });
+    await popover.locator('[data-commit-menu-view="confirm"]').getByRole('button', { name: 'Create tag', exact: true }).click();
+    await page.locator('[data-guest-popover-overlay]').waitFor({ state: 'detached', timeout: 20_000 });
+    const tags = await run('git', ['tag', '--list', 'graph-test-tag'], fixture);
+    if (tags !== 'graph-test-tag') throw new Error(`fixture tag was not created (got ${JSON.stringify(tags)})`);
+    await frame.locator('[data-git-ref-badge-group="refs/tags/graph-test-tag"], [data-git-ref-badge="refs/tags/graph-test-tag"]').first().waitFor({ state: 'attached', timeout: 15_000 });
+  });
+
+  await checkActualBehavior('collapsing the section unmounts its frame', failures, async () => {
+    await openSection();
+    await toggle.click();
+    await section.locator('iframe').waitFor({ state: 'detached', timeout: 15_000 });
+  });
+
+  await page.screenshot({ path: join(evidenceRoot, 'v2-status-section.png'), fullPage: true });
   return failures;
 }
 
@@ -245,7 +338,7 @@ export async function runIsolatedHost(target: HostTarget): Promise<void> {
     if (fixtureSession) await page.getByText(fixtureSession.title, { exact: true }).first().click({ timeout: 30_000 });
     const evidenceRoot = join(repositoryRoot, '.cache/evidence');
     const actualBehaviorFailures: string[] = [];
-    actualBehaviorFailures.push(...await verifyStatusSection(page, evidenceRoot));
+    actualBehaviorFailures.push(...await verifyStatusSection(page, evidenceRoot, fixture));
     await writeFile(join(evidenceRoot, `${target}-git-graph-console.txt`), `${consoleMessages.join('\n')}\n`);
     await writeFile(join(evidenceRoot, `${target}-git-graph-service.txt`), `${serviceEvidence.join('\n')}\n`);
     if (actualBehaviorFailures.length > 0) {

@@ -6,11 +6,11 @@ This repository contains independently installable OpenChamber plugins. It is no
 
 | Plugin | Download | Requirements |
 | --- | --- | --- |
-| [Git Graph](plugins/git-graph) | [Latest ZIP](https://github.com/mattv8/openchamber-plugins/releases/latest/download/git-graph.zip) · [All releases](https://github.com/mattv8/openchamber-plugins/releases) | OpenChamber 2.0.1+ |
+| [Git Graph](plugins/git-graph) | [Latest ZIP](https://github.com/mattv8/openchamber-plugins/releases/latest/download/git-graph.zip) · [All releases](https://github.com/mattv8/openchamber-plugins/releases) | OpenChamber 2.1.1+ |
 
 In OpenChamber, choose **Settings → Extensions → Add**, select the ZIP, and allow the Git service. The graph appears under **Work Status → Git**.
 
-Git Graph currently provides the Work Status graph. The original native combined workspace and cross-panel popover await host integration hooks.
+Git Graph provides the Work Status graph with header range controls, commit hover cards, inline changed-file lists and a commit action menu. The original native combined workspace still awaits host integration hooks.
 
 ## Releases
 
@@ -26,6 +26,6 @@ For the browser regression tests, install Chromium with `bunx playwright install
 
 Release archives have a plugin `package.json` at their ZIP root plus precompiled assets. They never build during installation.
 
-The release archive is `artifacts/git-graph/git-graph.zip`. It uses the published `@openchamber/sdk@2.0.1` contract and requires OpenChamber 2.0.1 or later.
+The release archive is `artifacts/git-graph/git-graph.zip`. It uses the published `@openchamber/sdk@2.1.1` contract and requires OpenChamber 2.1.1 or later.
 
 Repository-specific agent guidance lives in [`.agents/`](.agents/). Historical plans and feature evidence are local, ignored scratch under `.opencode/`.

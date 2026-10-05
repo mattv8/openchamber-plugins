@@ -7,6 +7,7 @@ const paths = {
   read: '/read',
   mutate: '/mutate',
   'jobs/get': '/jobs/get',
+  'operations/get': '/operations/get',
   refresh: '/refresh',
 } as const;
 
@@ -79,7 +80,7 @@ export const createServiceClient = (host: Pick<HostClient, 'serviceRequest'>): G
     });
     const response = decodeServiceResponse(result.body);
     if (response.requestId !== request.requestId || response.operation !== request.operation) throw new Error('Git Graph service response did not match its request');
-    if (!response.ok || response.operation === 'repo/open' || response.operation === 'refresh' || response.operation === 'jobs/get') return response;
+    if (!response.ok || response.operation === 'repo/open' || response.operation === 'refresh' || response.operation === 'jobs/get' || response.operation === 'operations/get') return response;
     if (response.operation === 'read') {
       if (request.operation !== 'read') throw new Error('Git Graph read response did not match its request');
       const resolved = await resolveRead(host, request, response);
