@@ -9,7 +9,7 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "test": "bun test",
-    "test:browser": "bun testing/e2e/mutation-guard.ts && bun testing/e2e/status-section.ts",
+    "test:browser": "bun testing/e2e/mutation-guard.ts && bun testing/e2e/status-section.ts && bun testing/e2e/commit-hover.ts && bun testing/e2e/commit-menu-recovery.ts",
     "build": "bun run tooling/build.ts",
     "package": "bun run tooling/package.ts",
     "validate": "bun run tooling/validate.ts",

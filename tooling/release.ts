@@ -28,7 +28,8 @@ export const releaseManifest = () => ({
     contributes: {
       panel: { id: 'git-graph', name: 'Git Graph', icon: 'git-branch' },
       statusSection: { entry: 'dist/panel/status.html', title: 'Git', height: 260, defaultExpanded: false, requiresProject: true },
-      service: { entry: 'dist/service/index.js', runtime: 'host' as const, permissions: { exec: ['git'] } },
+      service: { entry: 'dist/service/index.js', runtime: 'host' as const, permissions: { exec: ['git', 'gh'] } },
+      origins: ['https://avatars.githubusercontent.com'],
     },
   },
 });

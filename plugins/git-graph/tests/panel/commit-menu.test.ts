@@ -59,12 +59,12 @@ describe('commit menu mutation controller', () => {
     expect(requests).toEqual([]);
   });
 
-  test('does not delete a replacement record after the prior operation completes', async () => {
+  test('continues polling a replacement record until it reaches a terminal state', async () => {
     let record: JsonValue = { v: 1, repositoryId: 'repo', operationId: 'x', directory: '/repo' };
     const deleted: string[] = [];
-    const result = await reconcileOperation({ repositoryId: 'repo', storage: { get: async () => record, delete: async (key) => { deleted.push(key); } }, query: async (id) => { if (id === 'x') { record = { v: 1, repositoryId: 'repo', operationId: 'y', directory: '/repo' }; return { state: 'completed', error: null }; } return { state: 'running', error: null }; }, sleep: async () => {}, now: () => 0, isActive: () => true });
-    expect(result).toEqual({ state: 'running' });
-    expect(deleted).toEqual([]);
+    const result = await reconcileOperation({ repositoryId: 'repo', storage: { get: async () => record, delete: async (key) => { deleted.push(key); } }, query: async (id) => { if (id === 'x') { record = { v: 1, repositoryId: 'repo', operationId: 'y', directory: '/repo' }; return { state: 'completed', error: null }; } return { state: 'completed', error: null }; }, sleep: async () => {}, now: () => 0, isActive: () => true });
+    expect(result).toEqual({ state: 'completed' });
+    expect(deleted).toEqual(['git-graph:op:repo']);
   });
 
   test('maps child outcomes without retrying writes', () => {

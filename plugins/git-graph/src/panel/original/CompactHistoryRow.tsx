@@ -21,8 +21,11 @@ export function CompactHistoryRow({ viewModel, expanded = false, onToggle, hover
   const references: GitHistoryGraphRef[] = historyItem.references ?? [];
   const badges = buildGitRefBadgePresentation(references);
   const tagNames = references.filter((ref) => ref.kind === 'tag' && !ref.color).map((ref) => ref.name).join(', ') || undefined;
+  const accessibleTagNames = references.filter((ref) => ref.kind === 'tag').map((ref) => ref.name).join(', ');
   const actionable = viewModel.kind === 'HEAD' || viewModel.kind === 'node';
-  const ariaLabel = t('status.openCommit', { subject: historyItem.subject, author: historyItem.author });
+  const ariaLabel = accessibleTagNames
+    ? t('status.toggleCommitFilesWithTags', { subject: historyItem.subject, author: historyItem.author, tags: accessibleTagNames })
+    : t('status.toggleCommitFiles', { subject: historyItem.subject, author: historyItem.author });
   const content = <>
     <div className="git-compact-graph-segment"><GitGraphSegment viewModel={viewModel} /></div>
     <div className="git-compact-body">

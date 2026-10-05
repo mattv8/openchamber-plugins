@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
 
 const fixture = new URL('../../plugins/git-graph/tests/e2e/status-section-fixture.tsx', import.meta.url).pathname;
-const evidence = new URL('../../.cache/evidence/', import.meta.url);
+const evidence = new URL('../../.opencode/sessions/git-graph-expanded/screenshots/', import.meta.url);
 await mkdir(evidence, { recursive: true });
 const output = await mkdtemp(`${Bun.env.TMPDIR ?? '/tmp'}/git-graph-status-section-`);
 const build = await Bun.build({ entrypoints: [fixture], outdir: output, target: 'browser', naming: '[name].[ext]' });
@@ -35,23 +35,57 @@ try {
   await page.evaluate(() => window.statusSection.setHostControls(false));
   await status.getByRole('tablist', { name: 'History mode' }).waitFor();
   await status.locator('[data-git-graph-status-commit]').first().waitFor();
-  expect(await status.getByRole('button', { name: /Open commit Commit fixture-a by Test/ }).count()).toBe(1);
+  expect(await status.getByRole('button', { name: /Toggle changed files for Commit fixture-a by Test/ }).count()).toBe(1);
   const rowBoxes = await status.locator('.git-compact-history-row').evaluateAll((rows) => rows.map((row) => {
     const box = row.getBoundingClientRect();
     return { top: box.top, height: box.height };
   }));
   expect(rowBoxes.every((row) => row.height === 22)).toBe(true);
   expect(rowBoxes.slice(1).every((row, index) => row.top === rowBoxes[index]!.top + 22)).toBe(true);
-  await page.screenshot({ path: fileURLToPath(new URL('status-graph-320.png', evidence)) });
   await page.setViewportSize({ width: 282, height: 480 });
-  await page.screenshot({ path: fileURLToPath(new URL('status-graph-282.png', evidence)) });
 
   const initialRequests = await page.evaluate(() => window.statusSection.requestCount());
   await status.locator('[data-git-graph-status-commit]').first().click();
-  await status.locator('[data-git-status-file-list]').first().getByRole('button', { name: /Open full commit diff for src\/example.ts/ }).waitFor();
+  const fileList = status.locator('[data-git-status-file-list]').first();
+  await fileList.getByRole('button', { name: /Open full commit diff for src\/panel\/components\/StatusSection.tsx/ }).waitFor();
+  expect(await fileList.locator('[data-git-file-row]').count()).toBe(7);
+  const fileGeometry = await fileList.evaluate((list) => {
+    const rows = Array.from(list.querySelectorAll<HTMLElement>('[data-git-file-row]'));
+    const gutter = list.querySelector<SVGElement>('[data-git-file-graph] svg');
+    const firstIcon = list.querySelector<SVGElement>('.git-file-type-icon');
+    const selectedRow = list.previousElementSibling as HTMLElement | null;
+    const nextRow = list.nextElementSibling as HTMLElement | null;
+    const listBox = list.getBoundingClientRect();
+    const gutterBox = gutter?.getBoundingClientRect();
+    const iconBox = firstIcon?.getBoundingClientRect();
+    return { rows: rows.map((row) => ({ height: row.getBoundingClientRect().height, right: row.getBoundingClientRect().right })), selectedBottom: selectedRow?.getBoundingClientRect().bottom ?? listBox.top, listTop: listBox.top, listBottom: listBox.bottom, listRight: listBox.right, scrollWidth: list.scrollWidth, clientWidth: list.clientWidth, gutterTop: gutterBox?.top ?? 0, gutterBottom: gutterBox?.bottom ?? 0, gutterRight: gutterBox?.right ?? 0, iconLeft: iconBox?.left ?? 0, nextTop: nextRow?.getBoundingClientRect().top ?? listBox.bottom };
+  });
+  expect(fileGeometry.rows.every((row) => row.height === 22 && row.right <= fileGeometry.listRight)).toBe(true);
+  expect(fileGeometry.scrollWidth).toBe(fileGeometry.clientWidth);
+  expect(fileGeometry.iconLeft).toBeGreaterThanOrEqual(fileGeometry.gutterRight + 5);
+  expect(fileGeometry.gutterTop).toBe(fileGeometry.listTop);
+  expect(fileGeometry.gutterBottom).toBe(fileGeometry.listBottom);
+  expect(fileGeometry.selectedBottom).toBe(fileGeometry.listTop);
+  expect(fileGeometry.nextTop).toBe(fileGeometry.listBottom);
+  // A long directory must truncate before an ordinary basename that fits the row.
+  expect(await fileList.locator('.git-file-basename').first().evaluate((name) => name.scrollWidth <= name.clientWidth)).toBe(true);
+  await fileList.getByRole('button').first().hover();
+  expect(await fileList.locator('.git-file-open-hint').first().evaluate((hint) => getComputedStyle(hint).visibility)).toBe('visible');
+  await fileList.getByRole('button').first().focus();
+  expect(await fileList.locator('.git-file-open-hint').first().evaluate((hint) => getComputedStyle(hint).visibility)).toBe('visible');
+  await page.screenshot({ path: fileURLToPath(new URL('status-graph-282.png', evidence)) });
+  await page.setViewportSize({ width: 246, height: 480 });
+  await page.screenshot({ path: fileURLToPath(new URL('status-graph-246.png', evidence)) });
+  expect(await fileList.locator('.git-file-dir').first().evaluate((directory) => getComputedStyle(directory).display)).toBe('none');
+  expect(await fileList.evaluate((list) => list.scrollWidth === list.clientWidth)).toBe(true);
+  // Status stays in the right-hand column even when the directory is hidden or absent.
+  const statusRights = await fileList.locator('.git-file-status').evaluateAll((items) => items.map((item) => item.getBoundingClientRect().right));
+  expect(new Set(statusRights).size).toBe(1);
+  await page.setViewportSize({ width: 320, height: 480 });
+  await page.screenshot({ path: fileURLToPath(new URL('status-graph-320.png', evidence)) });
   await page.evaluate(() => window.statusSection.rerender());
   expect(await page.evaluate(() => window.statusSection.requestCount())).toBe(initialRequests + 1);
-  await status.locator('[data-git-status-file-list]').first().getByRole('button', { name: /Open full commit diff for src\/example.ts/ }).click();
+  await fileList.getByRole('button', { name: /Open full commit diff for src\/panel\/components\/StatusSection.tsx/ }).click();
   expect(await page.evaluate(() => window.statusSection.openedCommit())).toBe('0123456789abcdef0123456789abcdef01234567');
 
   const history = status.locator('.git-status-commits');
@@ -60,6 +94,10 @@ try {
   const commitIds = await history.locator('[data-git-graph-status-commit]').evaluateAll((rows) => rows.map((row) => row.getAttribute('data-git-graph-status-commit')));
   expect(new Set(commitIds).size).toBe(101);
   expect(commitIds.at(-1)).toBe('0000000000000000000000000000000000000064');
+  // Absolutely positioned labels must be clipped by the list; otherwise they stretch and scroll the frame document too.
+  const escapedLabels = await history.evaluate((list) => Array.from(list.querySelectorAll('*')).filter((el) => getComputedStyle(el).position === 'absolute' && !list.contains((el as HTMLElement).offsetParent)).length);
+  expect(await history.locator('.sr-only').count()).toBeGreaterThan(0);
+  expect(escapedLabels).toBe(0);
 
   await page.getByRole('tab', { name: 'All', exact: true }).click();
   await page.waitForFunction(() => window.statusSection.lastHistoryRefs().join(',') === '*');

@@ -8,6 +8,8 @@ export const statusMessages: Record<string, string> = {
   'status.filesFor': 'Changed files for {subject}',
   'status.openCommitFile': 'Open full commit diff for {path} — {subject}',
   'status.openCommitViaFile': 'Opens the full commit diff',
+  'status.toggleCommitFiles': 'Toggle changed files for {subject} by {author}',
+  'status.toggleCommitFilesWithTags': 'Toggle changed files for {subject} by {author}; tags: {tags}',
   'status.filesMore': '{count} more files',
   'status.recoveryRunning': 'A Git operation is still running.',
   'status.recoveryFailed': 'A Git operation failed: {message}',

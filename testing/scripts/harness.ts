@@ -2,11 +2,12 @@ import { access, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import { basename, join, resolve } from 'node:path';
 import { spawn, type ChildProcess } from 'node:child_process';
-import { chromium, type Page } from 'playwright';
+import { _electron, chromium, type ElectronApplication, type Page } from 'playwright';
 import { GitGraphRequestSchema, GitGraphResponseSchema } from '../../plugins/git-graph/src/shared/protocol.js';
 import { GuestCatalogSchema, PortAddressSchema, ServiceEnvelopeSchema, SessionIdentitySchema, type InstalledGuest } from '../../plugins/git-graph/tests/integration/host-fixture-contracts.js';
 import { createGitFixture, removeFixture } from './fixtures.js';
 import { electronExecutableCandidates, hasTrustedHostRemote, hostEnvironment, isCleanGitStatus, isolatedEnvironment, parseHostLock, requireEnvironment, uploadHeaders, type HostLock, type HostTarget } from './contracts.js';
+import { authenticatedHeaders, discoverRuntimeConnection, electronDevArguments, electronLaunchEnvironment, nativeEvidenceRoot, nativeProcessIds, reapNativeProcesses, requireElectronAssets } from './electron.js';
 
 const repositoryRoot = resolve(import.meta.dir, '../..');
 const lockPath = join(repositoryRoot, 'testing/hosts.lock.json');
@@ -84,20 +85,20 @@ function stop(child: ChildProcess | undefined): Promise<void> {
   });
 }
 
-async function installPackedPlugin(url: string, archive: string): Promise<void> {
+async function installPackedPlugin(url: string, archive: string, headers: Record<string, string> = {}): Promise<void> {
   if (!archive.endsWith('.zip')) throw new Error('OPENCHAMBER_PLUGIN_ZIP must point to a packed .zip, never a source tree.');
   await access(archive);
   const payload = await Bun.file(archive).arrayBuffer();
-  const response = await fetch(`${url}/api/guests/upload`, { method: 'POST', headers: uploadHeaders(payload.byteLength), body: payload });
+  const response = await fetch(`${url}/api/guests/upload`, { method: 'POST', headers: { ...uploadHeaders(payload.byteLength), ...headers }, body: payload });
   if (!response.ok) throw new Error(`Packed plugin install failed: ${response.status} ${await response.text()}`);
 }
 
-async function approveInstalledPlugin(url: string, guest: InstalledGuest): Promise<void> {
+async function approveInstalledPlugin(url: string, guest: InstalledGuest, headers: Record<string, string> = {}): Promise<void> {
   const requested = guest.capabilities?.requested;
-  if (!requested || requested.length !== 1 || requested[0] !== 'service') throw new Error('Installed Git Graph plugin must request only the service capability.');
+  if (!requested || requested.length !== 2 || !requested.includes('service') || !requested.includes('origins')) throw new Error('Installed Git Graph plugin must request service and avatar-origin capabilities.');
   const response = await fetch(`${url}/api/guests/git-graph/capabilities`, {
     method: 'PUT',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', ...headers },
     body: JSON.stringify({ granted: requested }),
   });
   if (!response.ok) throw new Error(`Git Graph capability approval failed: ${response.status} ${await response.text()}`);
@@ -105,10 +106,10 @@ async function approveInstalledPlugin(url: string, guest: InstalledGuest): Promi
 
 type SessionIdentity = { id: string; title: string };
 
-async function createFixtureSession(url: string, fixture: string): Promise<SessionIdentity> {
+async function createFixtureSession(url: string, fixture: string, headers: Record<string, string> = {}): Promise<SessionIdentity> {
   const response = await fetch(`${url}/api/session?directory=${encodeURIComponent(fixture)}`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', ...headers },
     body: JSON.stringify({ title: 'Git Graph verification', location: { directory: fixture } }),
   });
   if (!response.ok) throw new Error(`Fixture session creation failed: ${response.status} ${await response.text()}`);
@@ -125,6 +126,10 @@ async function checkActualBehavior(name: string, failures: string[], action: () 
   } catch (error) {
     failures.push(`${name}: ${error instanceof Error ? error.message : String(error)}`);
   }
+}
+
+function redactRuntimeSecrets(message: string): string {
+  return message.replace(/(["']?authorization["']?\s*[:=]\s*["']?bearer\s+|["']?clientToken["']?\s*[:=]\s*["']?|--openchamber-client-token=)[^\s"']+/gi, '$1[redacted]');
 }
 
 async function verifyStatusSection(page: Page, evidenceRoot: string, fixture: string): Promise<string[]> {
@@ -227,7 +232,7 @@ async function verifyStatusSection(page: Page, evidenceRoot: string, fixture: st
   await checkActualBehavior('the context menu creates a tag through the plugin service and the graph shows it', failures, async () => {
     await openSection();
     await frame.getByRole('button', { name: /Initial fixture/ }).click({ button: 'right' });
-    await popover.getByRole('button', { name: /Create tag/ }).click({ timeout: 20_000 });
+    await popover.getByRole('menuitem', { name: /Create tag/ }).click({ timeout: 20_000 });
     await popover.getByRole('textbox', { name: 'Tag name' }).fill('graph-test-tag');
     await popover.getByRole('button', { name: 'Create tag', exact: true }).click();
     const view = popover.locator('[data-commit-menu-view]').first();
@@ -250,16 +255,22 @@ async function verifyStatusSection(page: Page, evidenceRoot: string, fixture: st
   return failures;
 }
 
-async function registerFixtureProject(dataDirectory: string, fixture: string): Promise<void> {
+async function registerFixtureProject(dataDirectory: string, fixture: string, desktop = false): Promise<void> {
   await writeFile(join(dataDirectory, 'settings.json'), JSON.stringify({
     projects: [{ id: 'git-graph-fixture', path: fixture, addedAt: Date.now(), lastOpenedAt: Date.now() }],
     activeProjectId: 'git-graph-fixture',
     lastDirectory: fixture,
+    ...(desktop ? { desktopDefaultHostId: 'local', desktopInitialHostChoiceCompleted: true } : {}),
   }, null, 2));
 }
 
 export async function runIsolatedHost(target: HostTarget): Promise<void> {
   const source = requireEnvironment('OPENCHAMBER_HOST_SOURCE');
+  const archive = requireEnvironment('OPENCHAMBER_PLUGIN_ZIP');
+  const opencode = requireEnvironment('OPENCHAMBER_TEST_OPENCODE_BINARY');
+  const lock = await readLock();
+  await assertHostIdentity(source, lock);
+  await mkdir(join(repositoryRoot, '.cache'), { recursive: true });
   if (target === 'electron') {
     const candidates = electronExecutableCandidates(source);
     let executable: string | null = null;
@@ -275,12 +286,81 @@ export async function runIsolatedHost(target: HostTarget): Promise<void> {
     if (!executable) {
       throw new Error(`test:app:electron is UNAVAILABLE: no unpackaged Electron binary exists in ${source}. Checked ${candidates.join(', ')}. Run the host's Electron install step before native-shell verification.`);
     }
-    throw new Error(`test:app:electron is BLOCKED: found ${executable}, but this checkout has no reviewed native-shell inspection runner. Web coverage is not reported as Electron coverage.`);
+    const { entry } = await requireElectronAssets(source);
+    const runRoot = await Bun.$`mktemp -d ${join(repositoryRoot, '.cache/git-graph-electron-XXXXXX')}`.text();
+    const root = runRoot.trim();
+    let app: ElectronApplication | undefined;
+    try {
+      const environment = electronLaunchEnvironment(root, opencode);
+      const isolatedPaths = Object.values(hostEnvironment(root)).filter((path): path is string => path !== undefined);
+      await Promise.all(isolatedPaths.map((path) => mkdir(path.endsWith('.json') ? resolve(path, '..') : path, { recursive: true })));
+      const fixture = await createGitFixture(join(root, 'fixture'));
+      await registerFixtureProject(environment.OPENCHAMBER_DATA_DIR!, fixture, true);
+      app = await _electron.launch({
+        executablePath: executable,
+        args: await electronDevArguments(entry),
+        cwd: resolve(source, 'packages/electron'),
+        env: Object.fromEntries(Object.entries(environment).filter((entry): entry is [string, string] => typeof entry[1] === 'string')),
+      });
+      const electronProcess = app.process();
+      const processOutput: string[] = [];
+      const captureProcessOutput = (stream: 'stdout' | 'stderr', chunk: Buffer) => {
+        const line = `${stream}: ${redactRuntimeSecrets(chunk.toString())}`;
+        processOutput.push(line);
+        if (processOutput.length > 100) processOutput.shift();
+      };
+      electronProcess.stdout?.on('data', (chunk: Buffer) => captureProcessOutput('stdout', chunk));
+      electronProcess.stderr?.on('data', (chunk: Buffer) => captureProcessOutput('stderr', chunk));
+      const userData = await app.evaluate(({ app: electronApp }) => electronApp.getPath('userData')).catch((error) => {
+        const detail = redactRuntimeSecrets(processOutput.join('')).trim() || '<no child output captured>';
+        throw new Error(`Electron exited during startup (exit=${electronProcess.exitCode}, signal=${electronProcess.signalCode}): ${error instanceof Error ? error.message : String(error)}\n${detail}`);
+      });
+      if (userData !== environment.OPENCHAMBER_DESKTOP_USER_DATA_DIR) throw new Error('Electron did not use the isolated userData directory.');
+      const electronVersion = await app.evaluate(() => process.versions.electron);
+      if (!electronVersion) throw new Error('Electron runtime version was unavailable.');
+      if (await app.evaluate(({ app: electronApp }) => electronApp.isDefaultProtocolClient('openchamber'))) {
+        throw new Error('Test Electron is registered as the default openchamber:// handler; restore the installed app before native verification.');
+      }
+      const bounds = await app.evaluate(({ BrowserWindow }) => {
+        const window = BrowserWindow.getAllWindows()[0];
+        if (!window) return null;
+        window.setBounds({ width: 1280, height: 720 });
+        return window.getBounds();
+      });
+      if (!bounds || bounds.width < 1280 || bounds.height < 720) throw new Error('Electron window could not use the required native verification bounds.');
+      const page = await app.firstWindow();
+      const connection = await discoverRuntimeConnection(page);
+      const headers = authenticatedHeaders(connection);
+      await installPackedPlugin(connection.apiBaseUrl, archive, headers);
+      const guests = GuestCatalogSchema.parse(await fetch(`${connection.apiBaseUrl}/api/guests`, { headers }).then(async (response) => response.ok ? response.json() : Promise.reject(new Error(`Guest catalog failed: ${response.status}`))));
+      const installed = guests.guests.find((guest) => guest.id === 'git-graph');
+      if (!installed) throw new Error('Packed Git Graph plugin did not appear in the real host catalog.');
+      if (!installed.statusEntry || installed.entry || installed.pageEntry) throw new Error('Git Graph must contribute only a status section.');
+      await approveInstalledPlugin(connection.apiBaseUrl, installed, headers);
+      const fixtureSession = await createFixtureSession(connection.apiBaseUrl, fixture, headers);
+      await page.reload({ waitUntil: 'domcontentloaded' });
+      if (fixtureSession) await page.getByText(fixtureSession.title, { exact: true }).first().click({ timeout: 30_000 });
+      const failures = await verifyStatusSection(page, nativeEvidenceRoot(repositoryRoot), fixture);
+      if (failures.length > 0) throw new Error(`electron actual-app checks failed:\n- ${failures.join('\n- ')}`);
+      console.log(`PASS electron: installed packed Git Graph into an isolated real host with fixture ${basename(fixture)}.`);
+    } finally {
+      let observedPids: number[] = [];
+      try {
+        observedPids = await nativeProcessIds(root);
+      } finally {
+        try {
+          await app?.close();
+        } finally {
+          // Verify the processes, not just the reaper's return value, before
+          // removing the registry that identifies this run's detached children.
+          await reapNativeProcesses(source, root, opencode, observedPids);
+          await removeFixture(join(root, 'fixture'));
+          await rm(root, { recursive: true, force: true });
+        }
+      }
+    }
+    return;
   }
-  const archive = requireEnvironment('OPENCHAMBER_PLUGIN_ZIP');
-  const opencode = requireEnvironment('OPENCHAMBER_TEST_OPENCODE_BINARY');
-  const lock = await readLock();
-  await assertHostIdentity(source, lock);
   await stat(join(source, 'packages/web/server/index.js'));
   try {
     await stat(join(source, 'packages/web/dist/index.html'));
@@ -312,7 +392,7 @@ export async function runIsolatedHost(target: HostTarget): Promise<void> {
     const page = await browser.newPage();
     const consoleMessages: string[] = [];
     const serviceEvidence: string[] = [];
-    page.on('console', (message) => consoleMessages.push(`${message.type()}: ${message.text()}`));
+    page.on('console', (message) => consoleMessages.push(redactRuntimeSecrets(`${message.type()}: ${message.text()}`)));
     page.on('request', (request) => {
       if (!request.url().includes('/api/guests/git-graph/service/request')) return;
       try {
@@ -336,7 +416,7 @@ export async function runIsolatedHost(target: HostTarget): Promise<void> {
     });
     await page.goto(url, { waitUntil: 'domcontentloaded' });
     if (fixtureSession) await page.getByText(fixtureSession.title, { exact: true }).first().click({ timeout: 30_000 });
-    const evidenceRoot = join(repositoryRoot, '.cache/evidence');
+    const evidenceRoot = join(repositoryRoot, '.cache/evidence/web');
     const actualBehaviorFailures: string[] = [];
     actualBehaviorFailures.push(...await verifyStatusSection(page, evidenceRoot, fixture));
     await writeFile(join(evidenceRoot, `${target}-git-graph-console.txt`), `${consoleMessages.join('\n')}\n`);

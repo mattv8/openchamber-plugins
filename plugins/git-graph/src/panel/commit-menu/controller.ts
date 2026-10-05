@@ -18,6 +18,7 @@ export type DurableOperation = {
 export type RecoveredOperationState = { state: 'running' } | { state: 'completed' } | { state: 'failed'; message: string } | { state: 'unknown' };
 export type ReconcileState = RecoveredOperationState | { state: 'idle' };
 type OperationQuery = { state: 'running' | 'completed' | 'failed' | 'unknown' | 'absent'; error: { message: string } | null };
+export type DurableOperationIdentity = Pick<DurableOperation, 'repositoryId' | 'operationId'>;
 
 export const recoveryStateForOperation = (state: 'running' | 'completed' | 'failed' | 'unknown' | 'absent', message?: string | null): RecoveredOperationState => {
   if (state === 'running') return { state: 'running' };
@@ -29,22 +30,34 @@ export const recoveryStateForOperation = (state: 'running' | 'completed' | 'fail
 export const operationKey = (repositoryId: string) => `git-graph:op:${repositoryId}`;
 
 /** Pure owner reconciliation seam. It only reads/deletes durable records and queries operation status. */
-export async function reconcileOperation(options: { repositoryId: string; storage: Pick<HostClient['storage'], 'get' | 'delete'>; query(operationId: string): Promise<OperationQuery>; sleep(ms: number): Promise<void>; now(): number; isActive(): boolean }): Promise<ReconcileState> {
+export async function reconcileOperation(options: { repositoryId: string; storage: Pick<HostClient['storage'], 'get' | 'delete'>; query(operationId: string): Promise<OperationQuery>; sleep(ms: number): Promise<void>; now(): number; isActive(): boolean; onRecord?(record: DurableOperationIdentity): void; onProgress?(state: Extract<RecoveredOperationState, { state: 'running' }>): void }): Promise<ReconcileState> {
   const started = options.now();
   for (let poll = 0; options.isActive() && options.now() - started < 600_000; poll += 1) {
     const record = await options.storage.get(operationKey(options.repositoryId), { scope: 'device' });
+    if (!options.isActive()) return { state: 'unknown' };
     if (!record || typeof record !== 'object') return { state: 'idle' };
     const value = record as Partial<DurableOperation>;
     if (value.repositoryId !== options.repositoryId || !value.operationId) return { state: 'idle' };
+    options.onRecord?.({ repositoryId: value.repositoryId, operationId: value.operationId });
     const result = await options.query(value.operationId);
-    if (result.state === 'running') { await options.sleep(Math.min(500 * (2 ** Math.min(poll, 4)), 5000)); continue; }
+    if (!options.isActive()) return { state: 'unknown' };
+    if (result.state === 'running') {
+      options.onProgress?.({ state: 'running' });
+      await options.sleep(Math.min(500 * (2 ** Math.min(poll, 4)), 5000));
+      if (!options.isActive()) return { state: 'unknown' };
+      continue;
+    }
     if (result.state === 'completed') {
       const latest = await options.storage.get(operationKey(options.repositoryId), { scope: 'device' });
+      if (!options.isActive()) return { state: 'unknown' };
       if (latest && typeof latest === 'object' && (latest as Partial<DurableOperation>).operationId !== value.operationId) {
         const replacement = latest as Partial<DurableOperation>;
-        if (replacement.repositoryId === options.repositoryId && replacement.operationId) return recoveryStateForOperation((await options.query(replacement.operationId)).state);
+        if (replacement.repositoryId === options.repositoryId && replacement.operationId) continue;
       }
-      if (latest && typeof latest === 'object' && (latest as Partial<DurableOperation>).operationId === value.operationId) await options.storage.delete(operationKey(options.repositoryId), { scope: 'device' });
+      if (latest && typeof latest === 'object' && (latest as Partial<DurableOperation>).operationId === value.operationId) {
+        await options.storage.delete(operationKey(options.repositoryId), { scope: 'device' });
+        if (!options.isActive()) return { state: 'unknown' };
+      }
       return { state: 'completed' };
     }
     return recoveryStateForOperation(result.state, result.error?.message);

@@ -7,9 +7,11 @@ import { ServiceError, type HunkRecord, type Repository, type ServiceContext } f
 import { createJobStore } from './jobs.js';
 import { mutateRepository } from './mutations.js';
 import { openRepository, refreshRepository } from './repository.js';
-import { readRepository } from './reads.js';
+import { isCommitAddressedRead, readRepository } from './reads.js';
 import { createGitRunner } from './runner.js';
 import { createRepositoryWatcher } from './watcher.js';
+import { createCommitAuthorLookup } from './github-author.js';
+import { readRemoteMetadata } from './remotes.js';
 
 const MAX_INPUT_BYTES = 64_000;
 const MAX_RESPONSE_BYTES = 256_000;
@@ -78,7 +80,7 @@ async function readIncomingBody(request: IncomingMessage): Promise<Buffer> {
   return Buffer.concat(chunks);
 }
 
-export function createGitService({ token = randomUUID(), timeoutMs = 20_000, jobMaximum, jobRetentionMs, jobConcurrency }: { token?: string; timeoutMs?: number; jobMaximum?: number; jobRetentionMs?: number; jobConcurrency?: number } = {}) {
+export function createGitService({ token = randomUUID(), timeoutMs = 20_000, jobMaximum, jobRetentionMs, jobConcurrency, readCommitAuthor }: { token?: string; timeoutMs?: number; jobMaximum?: number; jobRetentionMs?: number; jobConcurrency?: number; readCommitAuthor?: NonNullable<ServiceContext['readCommitAuthor']> } = {}) {
   const repositories = new Map<string, Repository>();
   const hunks = new Map<string, HunkRecord>();
   const queues = new Map<string, Promise<void>>();
@@ -89,6 +91,7 @@ export function createGitService({ token = randomUUID(), timeoutMs = 20_000, job
   let closed = false;
   const runGit = createGitRunner(timeoutMs);
   const jobs = createJobStore<JobData>(jobMaximum, jobRetentionMs, jobConcurrency);
+  const authorJobs = createJobStore<JobData>(32, jobRetentionMs, 2);
   const watcher = createRepositoryWatcher((repositoryId) => { const repository = repositories.get(repositoryId); if (repository) void refreshRepository(repository, runGit).catch(() => undefined); });
   const context: ServiceContext = {
     runGit,
@@ -96,6 +99,8 @@ export function createGitService({ token = randomUUID(), timeoutMs = 20_000, job
     rememberHunk: (key, hunk) => { hunks.set(key, hunk); while (hunks.size > MAX_HUNKS) hunks.delete(hunks.keys().next().value as string); },
     getHunk: (key) => hunks.get(key),
   };
+  const commitAuthor = createCommitAuthorLookup({ readRemotes: (repository) => readRemoteMetadata(context, repository) });
+  context.readCommitAuthor = readCommitAuthor ?? ((repository, commit) => commitAuthor.read(repository, commit));
   const journalPath = (repository: Repository) => path.join(repository.commonGitDir, 'openchamber-git-graph-operations.json');
   const operationKey = (repository: Repository, operationId: string) => `${repository.id}:${operationId}`;
   const isOperation = (value: unknown): value is Operation => {
@@ -148,7 +153,13 @@ export function createGitService({ token = randomUUID(), timeoutMs = 20_000, job
   };
   const rememberRepository = (repository: Repository) => { repositories.set(repository.id, repository); while (repositories.size > MAX_REPOSITORIES) repositories.delete(repositories.keys().next().value as string); watcher.ensure(repository.id, repository.gitDir); };
   const submitRead = (repository: Repository, request: Extract<GitGraphRequest, { operation: 'read' }>) => {
-    const accepted = jobs.submit(async () => { await context.refresh(repository); if (request.snapshot !== repository.snapshot) throw new ServiceError('snapshot-conflict', 'Read snapshot is stale', true); return readRepository(context, repository, request); });
+    const accepted = (request.read === 'commit-author' ? authorJobs : jobs).submit(async () => {
+      if (!isCommitAddressedRead(request)) {
+        await context.refresh(repository);
+        if (request.snapshot !== repository.snapshot) throw new ServiceError('snapshot-conflict', 'Read snapshot is stale', true);
+      }
+      return readRepository(context, repository, request);
+    });
     jobRepositories.set(accepted.jobId, repository.id); return accepted;
   };
   const submitMutationImpl = async (repository: Repository, request: Extract<GitGraphRequest, { operation: 'mutate' }>) => {
@@ -256,7 +267,7 @@ export function createGitService({ token = randomUUID(), timeoutMs = 20_000, job
         body = { version: PROTOCOL_VERSION, requestId: parsed.requestId, operation: parsed.operation, ok: true, data: { ...repository, head: head.exitCode === 0 ? head.stdout.toString('utf8').trim() : null } };
       } else if (parsed.operation === 'read') {
         const repository = repositoryFor(parsed.repositoryId);
-        if (parsed.snapshot !== repository.snapshot) throw new ServiceError('snapshot-conflict', 'Read snapshot is stale', true);
+        if (!isCommitAddressedRead(parsed) && parsed.snapshot !== repository.snapshot) throw new ServiceError('snapshot-conflict', 'Read snapshot is stale', true);
         body = { version: PROTOCOL_VERSION, requestId: parsed.requestId, operation: parsed.operation, ok: true, data: submitRead(repository, parsed) } as GitGraphResponse;
       } else if (parsed.operation === 'mutate') {
         body = { version: PROTOCOL_VERSION, requestId: parsed.requestId, operation: parsed.operation, ok: true, data: await submitMutation(repositoryFor(parsed.repositoryId), parsed) };
@@ -284,7 +295,7 @@ export function createGitService({ token = randomUUID(), timeoutMs = 20_000, job
         }
       } else {
         if (jobRepositories.get(parsed.jobId) !== parsed.repositoryId) throw new ServiceError('not-found', 'Job was not found for this repository');
-        const job = jobs.get(parsed.jobId);
+        const job = jobs.get(parsed.jobId) ?? authorJobs.get(parsed.jobId);
         if (!job) body = { version: PROTOCOL_VERSION, requestId: parsed.requestId, operation: parsed.operation, ok: true, data: { jobId: parsed.jobId, state: 'unknown', data: null, result: null, error: { code: 'job-lost', message: 'Job was not retained by this service instance', retryable: false, snapshot: null } } };
         else if (job.state === 'queued' || job.state === 'running') body = { version: PROTOCOL_VERSION, requestId: parsed.requestId, operation: parsed.operation, ok: true, data: { jobId: job.id, state: job.state, data: null, result: null, error: null } };
         else if (job.state === 'completed') body = { version: PROTOCOL_VERSION, requestId: parsed.requestId, operation: parsed.operation, ok: true, data: { jobId: job.id, state: 'completed', data: job.data, result: 'operationId' in job.data ? { operationId: job.data.operationId, snapshot: job.data.snapshot } : null, error: null } };
@@ -295,7 +306,7 @@ export function createGitService({ token = randomUUID(), timeoutMs = 20_000, job
       return json(body);
     } catch (caught) { return failure(parsed.requestId, parsed.operation, caught); }
   };
-  return { token, handle, close: () => { closed = true; watcher.close(); jobs.close(); runGit.close(); repositories.clear(); hunks.clear(); operations.clear(); jobRepositories.clear(); submissions.clear(); } };
+  return { token, handle, close: () => { closed = true; commitAuthor.close(); watcher.close(); jobs.close(); authorJobs.close(); runGit.close(); repositories.clear(); hunks.clear(); operations.clear(); jobRepositories.clear(); submissions.clear(); } };
 }
 
 /** Starts only on loopback; the bearer is never logged or inherited by Git. */

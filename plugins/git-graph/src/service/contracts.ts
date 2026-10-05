@@ -12,6 +12,8 @@ export type ServiceContext = {
   refresh: (repository: Repository) => Promise<string>;
   rememberHunk: (key: string, hunk: HunkRecord) => void;
   getHunk: (key: string) => HunkRecord | undefined;
+  /** Optional so existing read-only test contexts do not need network boundaries. */
+  readCommitAuthor?: (repository: Repository, commit: string) => Promise<{ login: string; avatarUrl: string } | null>;
 };
 
 export class ServiceError extends Error {

@@ -170,12 +170,13 @@ describe('commit-summary read', () => {
     await expect(summary(oversized, repository, commit)).rejects.toThrow('Commit metadata exceeds the maximum length');
   });
 
-  test('rejects stale snapshots and unknown commits', async () => {
+  test('serves a full commit ID across stale snapshots and rejects unknown commits', async () => {
     const { root, repository, context } = await fixture();
     await writeFile(join(root, 'file.txt'), 'one\n'); await git(root, ['add', '--', 'file.txt']); await git(root, ['commit', '-m', 'first']);
     const commit = (await git(root, ['rev-parse', 'HEAD'])).stdout.toString().trim();
-    await expect(readRepository(context, repository, { version: 1, requestId: 'stale', operation: 'read', read: 'commit-summary', repositoryId: repository.id, snapshot: 'old', commit })).rejects.toThrow('Read snapshot is stale');
-    await expect(summary(context, repository, 'f'.repeat(40))).rejects.toThrow('Unknown commit reference');
+    const stale = await readRepository(context, repository, { version: 1, requestId: 'stale', operation: 'read', read: 'commit-summary', repositoryId: repository.id, snapshot: 'old', commit });
+    expect(stale).toMatchObject({ read: 'commit-summary', commit: { id: commit, subject: 'first' } });
+    await expect(summary(context, repository, 'f'.repeat(40))).rejects.toMatchObject({ code: 'not-found', message: `Unknown commit reference: ${'f'.repeat(40)}` });
   });
 
   test('truncates a Unicode body without splitting a code point', async () => {

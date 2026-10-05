@@ -11,6 +11,8 @@ describe('Git Graph release validation', () => {
     expect(manifest.openchamber.contributes.panel).toEqual({ id: 'git-graph', name: 'Git Graph', icon: 'git-branch' });
     expect('entry' in manifest.openchamber.contributes.panel).toBe(false);
     expect('page' in manifest.openchamber.contributes).toBe(false);
+    expect(manifest.openchamber.contributes.service.permissions.exec).toEqual(['git', 'gh']);
+    expect(manifest.openchamber.contributes.origins).toEqual(['https://avatars.githubusercontent.com']);
     expect(manifest.openchamber.contributes.statusSection).toEqual({ entry: 'dist/panel/status.html', title: 'Git', height: 260, defaultExpanded: false, requiresProject: true });
   });
 

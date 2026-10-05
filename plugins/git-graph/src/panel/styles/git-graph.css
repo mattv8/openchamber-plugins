@@ -42,7 +42,7 @@ body[data-surface="status"] { margin: 0; }
 .git-graph-controls button[aria-selected="true"] { background: var(--oc-elevated, ButtonFace); color: var(--oc-fg, CanvasText); }
 .git-graph-controls .git-graph-refresh { margin-left: auto; display: grid; place-items: center; width: 1.55rem; height: 1.55rem; padding: 0; }
 .git-ref-icon { width: .75rem; height: .75rem; flex: 0 0 auto; }
-.git-status-commits { gap: 0; overflow: hidden; }
+.git-status-commits { position: relative; gap: 0; overflow: hidden; }
 .git-status-section .git-compact-history-row { appearance: none; display: flex; align-items: center; gap: .375rem; box-sizing: border-box; width: 100%; height: 22px; min-width: 0; padding: 0 .5rem; border: 0; border-radius: 0; color: inherit; background: transparent; text-align: left; font: inherit; }
 .git-compact-history-row:not(.git-compact-history-row-static) { cursor: pointer; }
 .git-compact-history-row:not(.git-compact-history-row-static):hover { background: color-mix(in srgb, var(--oc-hover, Highlight) 40%, transparent); }
@@ -59,8 +59,22 @@ body[data-surface="status"] { margin: 0; }
 .git-compact-graph { overflow-x: auto; }
 .git-compact-graph > button { display: flex; align-items: center; gap: .35rem; min-width: max-content; }
 @media (max-width: 700px) { .git-columns { grid-template-columns: 1fr; height: auto; overflow: visible; }.git-sidebar { overflow: visible; border-right: 0; }.git-tabs { min-height: 22rem; max-height: 55vh; }.git-history { max-height: 22rem; }.git-sidebar .git-changes { border-bottom: 1px solid var(--oc-border, ButtonBorder); } }
-.git-status-file-list { display: grid; gap: .2rem; padding: .25rem .5rem .4rem 2rem; border-top: 1px solid color-mix(in srgb, var(--oc-border, ButtonBorder) 45%, transparent); }
+.git-compact-history-row[aria-expanded="true"] { background: color-mix(in srgb, var(--oc-hover, Highlight) 25%, transparent); }
+.git-status-file-list { --git-file-lane-count: 0; position: relative; display: grid; gap: 0; min-width: 0; padding: 0; background: color-mix(in srgb, var(--oc-hover, Highlight) 12%, transparent); container-type: inline-size; }
+.git-file-graph-gutter { position: absolute; z-index: 0; inset-block: 0; left: .5rem; width: calc(11px * (var(--git-file-lane-count) + 1)); pointer-events: none; }
+.git-file-graph-gutter svg { display: block; width: 100%; height: 100%; overflow: visible; }
+.git-status-file-list label, .git-status-file-list > p { position: relative; z-index: 1; margin-left: calc(11px * (var(--git-file-lane-count) + 1) + .875rem); margin-right: .5rem; }
 .git-status-file-list label { display: grid; gap: .15rem; color: var(--oc-muted, GrayText); }
-.git-status-file { display: flex; min-width: 0; gap: .35rem; text-align: left; font-family: var(--oc-mono, ui-monospace); }
-.git-status-file > span:nth-child(2) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
-.git-status-file-add { color: var(--oc-success-text, CanvasText); }.git-status-file-delete { color: var(--oc-error-text, CanvasText); }
+.git-status-section .git-status-file { position: relative; z-index: 1; display: flex; align-items: center; box-sizing: border-box; width: 100%; height: 22px; min-width: 0; gap: .3rem; padding: 0 .5rem 0 calc(11px * (var(--git-file-lane-count) + 1) + .875rem); border: 0; border-radius: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.git-status-section .git-status-file:hover, .git-status-section .git-status-file:focus-visible { background: color-mix(in srgb, var(--oc-hover, Highlight) 40%, transparent); }
+.git-status-section .git-status-file:focus-visible { outline: 2px solid var(--oc-focus, Highlight); outline-offset: -2px; }
+.git-file-type-icon { flex: 0 0 12px; width: 12px; height: 12px; }
+.git-file-basename { flex: 0 0 auto; min-width: 0; max-width: min(65%, calc(100% - 42px - 1.2rem)); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.git-file-dir { flex: 1 1 auto; min-width: 0; overflow: hidden; color: var(--oc-muted, GrayText); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.git-file-open-hint { display: inline-flex; flex: 0 0 12px; width: 12px; height: 12px; margin-left: auto; visibility: hidden; color: var(--oc-muted, GrayText); }
+.git-file-open-hint svg { width: 12px; height: 12px; }
+.git-status-section .git-status-file:hover .git-file-open-hint, .git-status-section .git-status-file:focus-visible .git-file-open-hint { visibility: visible; }
+.git-file-status { flex: 0 0 18px; color: var(--oc-muted, GrayText); font-size: 11px; font-weight: 600; text-align: center; }
+.git-file-status[data-status="A"] { color: var(--oc-success-text, CanvasText); }.git-file-status[data-status="D"] { color: var(--oc-error-text, CanvasText); }
+.git-status-file:not(:has(.git-file-dir)) .git-file-basename { flex-shrink: 1; max-width: none; }
+@container (max-width: 260px) { .git-file-dir { display: none; } .git-file-basename { flex-shrink: 1; max-width: none; } }

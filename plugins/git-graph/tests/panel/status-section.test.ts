@@ -6,7 +6,7 @@ import { nextExpandedCommit } from '../../src/panel/components/CommitFiles.js';
 test('maps graph state to host status controls', () => {
   expect(statusControlsFor('manual', true)).toEqual([
     { kind: 'select', id: 'range', label: 'Range', value: 'manual', options: [{ value: 'auto', label: 'Auto' }, { value: 'all', label: 'All' }, { value: 'manual', label: 'Manual' }] },
-    { kind: 'button', id: 'refresh', label: 'Refresh', disabled: true },
+    { kind: 'button', id: 'refresh', label: '↻', disabled: true },
   ]);
 });
 

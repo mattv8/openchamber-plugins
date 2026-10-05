@@ -4,7 +4,7 @@ import { requestId, type GitGraphServiceClient, type GraphCommit, type GraphRef,
 import { defaultT } from '../i18n/index.js';
 import { CompactHistoryRow } from '../original/CompactHistoryRow.js';
 import { GitGraphControls } from '../original/GitGraphControls.js';
-import { buildGitHistoryViewModels } from '../original/gitGraph.js';
+import { buildGitHistoryViewModels, getHistoryItemMaxColumns } from '../original/gitGraph.js';
 import { readGraphPrefs, writeGraphPrefs } from '../state/preferences.js';
 import { CommitHoverProvider, useCommitHoverAnchor } from '../commit-hover/index.js';
 import { useCommitMenuTrigger, useOperationRecovery } from '../commit-menu/index.js';
@@ -15,7 +15,7 @@ type StatusState = 'loading' | 'empty' | 'error' | 'ready';
 export function statusControlsFor(mode: HistoryMode, loading: boolean, preferencesReady = true) {
   return [
     { kind: 'select' as const, id: 'range', label: defaultT('status.range'), value: mode, options: (['auto', 'all', 'manual'] as const).map((value) => ({ value, label: defaultT(`status.mode.${value}`) })), ...(!preferencesReady ? { disabled: true } : {}) },
-    { kind: 'button' as const, id: 'refresh', label: defaultT('status.refresh'), disabled: loading },
+    { kind: 'button' as const, id: 'refresh', label: '↻', disabled: loading },
   ];
 }
 
@@ -36,7 +36,7 @@ function StatusHistoryRow({ viewModel, expanded, onToggle, loadFiles, fileReposi
   const commit = viewModel.historyItem;
   const hoverAnchor = useCommitHoverAnchor(commit, commit.references);
   const menuTrigger = useCommitMenuTrigger({ host, enabled: popovers && menuEnabled, getPayload: () => buildMenuPayload(commit) });
-  return <><CompactHistoryRow viewModel={viewModel} expanded={expanded} onToggle={onToggle} hoverAnchor={hoverAnchor} menuTrigger={menuTrigger} t={t} />{expanded && <CommitFiles commit={commit.id} subject={commit.subject} parentIds={commit.parentIds} load={(parent) => loadFiles(commit, parent, fileRepository)} onOpenCommit={() => onOpenCommit(commit.id)} t={t} />}</>;
+  return <><CompactHistoryRow viewModel={viewModel} expanded={expanded} onToggle={onToggle} hoverAnchor={hoverAnchor} menuTrigger={menuTrigger} t={t} />{expanded && <CommitFiles commit={commit.id} subject={commit.subject} parentIds={commit.parentIds} load={(parent) => loadFiles(commit, parent, fileRepository)} onOpenCommit={() => onOpenCommit(commit.id)} outputSwimlanes={viewModel.outputSwimlanes} totalColumns={getHistoryItemMaxColumns(viewModel)} t={t} />}</>;
 }
 
 export function StatusSection({ directory, service, host, features, refreshToken = 0, recoveryRevision = 0 }: { directory: string | null; service: GitGraphServiceClient; host: HostClient; features?: { deviceStorage?: true; statusControls?: true; popovers?: true } | undefined; refreshToken?: number; recoveryRevision?: number }) {
@@ -234,7 +234,7 @@ export function StatusSection({ directory, service, host, features, refreshToken
     {state === 'error' && <p role="alert">{defaultT('status.error')}</p>}
     {state === 'empty' && <p>{directory ? defaultT(repository ? 'status.empty' : 'status.notRepository') : defaultT('status.noDirectory')}</p>}
     {graphRows.length > 0 && <div ref={scrollContainer} className="git-status-commits" aria-label={defaultT('status.commitList')} style={{ maxHeight: '264px', overflowY: 'auto' }}>{graphRows.map((row) => <StatusHistoryRow key={`${row.kind}:${row.historyItem.id}`} viewModel={row} expanded={expandedCommit === row.historyItem.id} onToggle={(id) => setExpandedCommit((current) => nextExpandedCommit(current, id))} loadFiles={loadFiles} fileRepository={repository} onOpenCommit={openCommit} host={host} popovers={Boolean(features?.popovers)} menuEnabled={Boolean(features?.deviceStorage) && !blocked} t={defaultT} />)}{hasMore && <div ref={sentinel} data-git-graph-end-sentinel="true" aria-hidden="true" style={{ height: '1px' }} />}{isLoadingMore && <p aria-busy="true">{defaultT('status.loading')}</p>}{pageError && <p role="alert">{pageError}</p>}</div>}
-    {recovery.state === 'running' && <p data-git-graph-recovery="running">{defaultT('status.recoveryRunning')}</p>}
+    {recovery.state === 'running' && <p data-git-graph-recovery="running" role="status">{defaultT('status.recoveryRunning')}</p>}
     {recovery.state === 'failed' && <p data-git-graph-recovery="failed" role="alert">{defaultT('status.recoveryFailed', { message: recovery.message })}<button type="button" onClick={acknowledge}>{defaultT('status.acknowledge')}</button></p>}
     {recovery.state === 'unknown' && <p data-git-graph-recovery="unknown" role="alert">{defaultT('status.recoveryUnknown')}<button type="button" onClick={acknowledge}>{defaultT('status.acknowledge')}</button></p>}
     {actionError && <p className="git-status-error" role="alert">{actionError}</p>}

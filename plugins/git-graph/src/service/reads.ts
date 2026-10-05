@@ -23,8 +23,12 @@ async function required(context: ServiceContext, repository: Repository, args: r
   return requireGit(context.runGit, repository.root, args);
 }
 
+/** Full commit IDs name immutable objects, so these reads stay valid when the working tree moves the snapshot. */
+const COMMIT_ADDRESSED_READS = new Set<ReadRequest['read']>(['commit-summary', 'commit-author', 'commit-files', 'commit-file-preview']);
+export const isCommitAddressedRead = (request: ReadRequest) => COMMIT_ADDRESSED_READS.has(request.read);
+
 function assertSnapshot(repository: Repository, request: ReadRequest) {
-  if (request.snapshot !== repository.snapshot) throw new ServiceError('snapshot-conflict', 'Read snapshot is stale', true);
+  if (!isCommitAddressedRead(request) && request.snapshot !== repository.snapshot) throw new ServiceError('snapshot-conflict', 'Read snapshot is stale', true);
 }
 
 function refInfo(idValue: string, name: string, revision: string | null, kind?: 'head' | 'local' | 'remote' | 'tag') {
@@ -190,6 +194,10 @@ export async function readRepository(context: ServiceContext, repository: Reposi
   if (request.read === 'remotes') return { read: 'remotes', remotes: await readRemoteMetadata(context, repository) };
   if (request.read === 'resolve-commit') return resolveCommit(context, repository, request.candidate);
   if (request.read === 'commit-summary') return readCommitSummary(context, repository, request.commit);
+  if (request.read === 'commit-author') {
+    const commit = await verifyCommitish(context, repository, request.commit);
+    return { read: 'commit-author', author: await (context.readCommitAuthor?.(repository, commit) ?? null) };
+  }
   if (request.read === 'merge-base') {
     await Promise.all(request.refs.map((ref) => verifyCommitish(context, repository, ref)));
     const result = await context.runGit(repository.root, ['merge-base', '--', request.refs[0]!, request.refs[1]!]);
@@ -235,6 +243,6 @@ export async function readRepository(context: ServiceContext, repository: Reposi
   if (request.read === 'range-files') { await Promise.all([verifyCommitish(context, repository, request.base), verifyCommitish(context, repository, request.head)]); const merge = await context.runGit(repository.root, ['merge-base', request.base, request.head]); const mergeBase = HASH.test(text(merge.stdout).trim()) ? text(merge.stdout).trim() : null; const files = await changedFiles(context, repository, [request.includeWorkingTree ? (mergeBase ?? request.base) : `${request.base}...${request.head}`, '--']); return { read: 'range-files', files, mergeBase }; }
   if (request.read === 'range-diff') { validateRef(request.base); validateRef(request.head); if (request.path) validatePath(request.path); await Promise.all([verifyCommitish(context, repository, request.base), verifyCommitish(context, repository, request.head)]); const merge = await context.runGit(repository.root, ['merge-base', request.base, request.head]); const mergeBase = HASH.test(text(merge.stdout).trim()) ? text(merge.stdout).trim() : null; const output = await required(context, repository, ['diff', '--binary', '--no-ext-diff', request.includeWorkingTree ? (mergeBase ?? request.base) : `${request.base}...${request.head}`, '--', ...(request.path ? [request.path] : [])]); return { read: 'range-diff', chunk: chunk(repository, output, request.offset, request.limit), mergeBase }; }
   if (request.read === 'commit-files') { const commit = await verifyCommitish(context, repository, request.commit); const parent = request.parent ? await verifyCommitish(context, repository, request.parent) : text(await required(context, repository, ['hash-object', '-t', 'tree', '--stdin'])).trim(); return { read: 'commit-files', files: await changedFiles(context, repository, [parent, commit, '--']) }; }
-  if (request.read === 'commit-file-preview') { const commit = await verifyCommitish(context, repository, request.commit); if (request.parent) await verifyCommitish(context, repository, request.parent); if (request.originalPath) validatePath(request.originalPath); if (request.modifiedPath) validatePath(request.modifiedPath); const paths = [request.originalPath, request.modifiedPath].filter((value): value is string => Boolean(value)); const args = request.parent ? ['diff', '--binary', '--no-ext-diff', '--find-renames', request.parent, commit, '--', ...paths] : ['show', '--format=', '--root', '--binary', '--no-ext-diff', '--find-renames', commit, '--', ...paths]; const output = await required(context, repository, args); const available = async (spec: string | null) => !spec ? false : (await context.runGit(repository.root, ['cat-file', '-e', spec])).exitCode === 0; return { read: 'commit-file-preview', chunk: chunk(repository, output, request.offset, request.limit), originalAvailable: await available(request.originalPath ? `${request.parent ?? `${commit}^`}:${request.originalPath}` : null), modifiedAvailable: await available(request.modifiedPath ? `${commit}:${request.modifiedPath}` : null) }; }
+  if (request.read === 'commit-file-preview') { const commit = await verifyCommitish(context, repository, request.commit); if (request.parent) await verifyCommitish(context, repository, request.parent); if (request.originalPath) validatePath(request.originalPath); if (request.modifiedPath) validatePath(request.modifiedPath); const paths = [request.originalPath, request.modifiedPath].filter((value): value is string => Boolean(value)); const args = request.parent ? ['diff', '--binary', '--no-ext-diff', '--find-renames', request.parent, commit, '--', ...paths] : ['show', '--format=', '--root', '--binary', '--no-ext-diff', '--find-renames', commit, '--', ...paths]; const output = await required(context, repository, args); const available = async (spec: string | null) => !spec ? false : (await context.runGit(repository.root, ['cat-file', '-e', spec])).exitCode === 0; return { read: 'commit-file-preview', chunk: chunk({ ...repository, snapshot: request.snapshot }, output, request.offset, request.limit), originalAvailable: await available(request.originalPath ? `${request.parent ?? `${commit}^`}:${request.originalPath}` : null), modifiedAvailable: await available(request.modifiedPath ? `${commit}:${request.modifiedPath}` : null) }; }
   throw new ServiceError('unsupported', 'Unsupported read operation');
 }

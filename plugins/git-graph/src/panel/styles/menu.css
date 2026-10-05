@@ -1,7 +1,30 @@
-.git-commit-menu { box-sizing: border-box; padding: 10px; color: var(--oc-elevated-fg, CanvasText); background: var(--oc-elevated, Canvas); font: 12px/1.35 var(--oc-font, system-ui); }
-.git-commit-menu h2 { margin: 0 0 8px; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.git-commit-menu button { display: block; width: 100%; margin: 3px 0; padding: 5px 7px; color: inherit; text-align: left; background: transparent; border: 1px solid var(--oc-border, ButtonBorder); border-radius: var(--oc-radius, 4px); }
-.git-commit-menu button:focus-visible, .git-commit-menu input:focus-visible { outline: 2px solid var(--oc-focus, Highlight); outline-offset: 1px; }
-.git-commit-menu button:hover { background: color-mix(in srgb, var(--oc-hover, ButtonFace) 40%, transparent); }
-.git-commit-menu fieldset { margin: 8px 0; border-color: var(--oc-border, ButtonBorder); }
-.git-commit-menu input { width: 100%; box-sizing: border-box; padding: 5px; color: inherit; background: var(--oc-elevated, Canvas); border: 1px solid var(--oc-border, ButtonBorder); }
+.gcm { box-sizing: border-box; min-width: 220px; padding: 4px; color: var(--oc-elevated-fg, CanvasText); font: 0.8125rem/1.35 var(--oc-font, system-ui, sans-serif); }
+.gcm *, .gcm *::before, .gcm *::after { box-sizing: border-box; }
+.gcm .gcm-header { display: flex; align-items: baseline; gap: 6px; padding: 4px 8px 6px; overflow: hidden; }
+.gcm .gcm-header-subject { flex: 1 1 auto; overflow: hidden; color: var(--oc-elevated-fg, CanvasText); font-size: 0.8125rem; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.gcm .gcm-header-sha { flex: 0 0 auto; color: var(--oc-muted, GrayText); font-family: var(--oc-mono, ui-monospace, monospace); font-size: 0.75rem; }
+.gcm .gcm-menu, .gcm .gcm-group { display: flex; flex-direction: column; gap: 1px; }
+.gcm [role="menuitem"] { display: flex; align-items: center; width: 100%; padding: 6px 8px; border: 0; border-radius: 8px; background: transparent; color: var(--oc-elevated-fg, CanvasText); cursor: pointer; font: inherit; font-size: 0.8125rem; text-align: left; transition: background 120ms ease-out; user-select: none; }
+.gcm [role="menuitem"]:hover, .gcm [role="menuitem"][data-active="true"], .gcm [role="menuitem"]:focus-visible { background: var(--oc-hover, ButtonFace); outline: none; }
+.gcm [role="menuitem"]:disabled, .gcm [role="menuitem"][aria-disabled="true"], .gcm .gcm-btn:disabled, .gcm .gcm-btn[aria-disabled="true"] { opacity: 0.5; pointer-events: none; }
+.gcm .gcm-item--destructive { color: var(--oc-error-text, inherit); }
+.gcm .gcm-item--destructive:hover, .gcm .gcm-item--destructive:focus-visible { background: color-mix(in srgb, var(--oc-error, red) 15%, transparent); }
+.gcm .gcm-sep { height: 1px; margin: 4px -4px; background: color-mix(in srgb, var(--oc-border, ButtonBorder) 40%, transparent); }
+.gcm .gcm-group-label { display: block; padding: 4px 8px 2px; color: var(--oc-muted, GrayText); font-size: 0.75rem; font-weight: 500; pointer-events: none; }
+.gcm .gcm-view { display: flex; flex-direction: column; gap: 8px; padding: 8px 4px 4px; }
+.gcm .gcm-view-title { margin: 0; overflow: hidden; font-size: 0.8125rem; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.gcm .gcm-view-body { margin: 0; color: var(--oc-muted, GrayText); font-size: 0.8125rem; }
+.gcm .gcm-view-body--warn { color: var(--oc-error-text, inherit); }
+.gcm .gcm-input { display: block; width: 100%; height: 32px; padding: 0 10px; border: 0; border-radius: var(--oc-radius, 8px); background: var(--oc-elevated, Canvas); color: var(--oc-elevated-fg, CanvasText); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--oc-border, ButtonBorder) 60%, transparent); font: inherit; font-size: 0.8125rem; transition: box-shadow 150ms ease-out; }
+.gcm .gcm-input:focus, .gcm .gcm-input:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--oc-focus, Highlight); }
+.gcm .gcm-footer { display: flex; justify-content: flex-end; gap: 6px; padding-top: 4px; }
+.gcm .gcm-btn { display: inline-flex; align-items: center; justify-content: center; height: 28px; padding: 0 10px; border: 1px solid transparent; border-radius: var(--oc-radius, 8px); cursor: pointer; font: inherit; font-size: 0.8125rem; font-weight: 500; transition: background 150ms ease-out; white-space: nowrap; }
+.gcm .gcm-btn[data-variant="secondary"] { border-color: var(--oc-border, ButtonBorder); background: transparent; color: var(--oc-elevated-fg, CanvasText); }
+.gcm .gcm-btn[data-variant="secondary"]:hover { background: var(--oc-hover, ButtonFace); }
+.gcm .gcm-btn[data-variant="primary"] { border-color: color-mix(in srgb, var(--oc-primary, ButtonFace) 15%, transparent); background: color-mix(in srgb, var(--oc-primary, ButtonFace) 12%, transparent); color: var(--oc-primary-text, inherit); }
+.gcm .gcm-btn[data-variant="primary"]:hover { background: color-mix(in srgb, var(--oc-primary, ButtonFace) 18%, transparent); }
+.gcm .gcm-btn[data-variant="destructive"] { border-color: color-mix(in srgb, var(--oc-error, red) 14%, transparent); background: color-mix(in srgb, var(--oc-error, red) 8%, transparent); color: var(--oc-error-text, inherit); }
+.gcm .gcm-btn[data-variant="destructive"]:hover { background: color-mix(in srgb, var(--oc-error, red) 12%, transparent); }
+.gcm .gcm-btn:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--oc-focus, Highlight); }
+.gcm [data-commit-menu-view="pending"], .gcm [data-commit-menu-view="success"] { padding: 12px 8px; color: var(--oc-muted, GrayText); font-size: 0.8125rem; text-align: center; }
+.gcm [data-commit-menu-view="success"] { color: var(--oc-success-text, CanvasText); }

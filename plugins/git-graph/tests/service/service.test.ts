@@ -162,6 +162,74 @@ describe('Git loopback service', () => {
     expect(stale.status).toBe(409);
   });
 
+  test('serves reads addressed by full commit IDs after the working tree moves the snapshot', async () => {
+    const directory = await repository();
+    const commit = (await git(directory, 'rev-parse', 'HEAD')).trim();
+    const service = createGitService({ token: 'test-token' });
+    try {
+      const opened = await service.handle(new Request('http://127.0.0.1/repo/open', { method: 'POST', headers: { authorization: 'Bearer test-token' }, body: JSON.stringify({ version: 1, requestId: 'open-immutable', operation: 'repo/open', repositoryId: 'ignored', directory }) }));
+      const { data } = await opened.json() as { data: { id: string; snapshot: string } };
+      await writeFile(join(directory, 'tracked.txt'), 'edited after the graph loaded\n');
+      await service.handle(new Request('http://127.0.0.1/refresh', { method: 'POST', headers: { authorization: 'Bearer test-token' }, body: JSON.stringify({ version: 1, requestId: 'refresh-immutable', operation: 'refresh', repositoryId: data.id, snapshot: data.snapshot }) }));
+      const base = { version: 1, operation: 'read', repositoryId: data.id, snapshot: data.snapshot };
+      expect(await readServiceJob(service, data.id, { ...base, requestId: 'stale-files', read: 'commit-files', commit, parent: null })).toEqual({ read: 'commit-files', files: [{ path: 'tracked.txt', previousPath: null, status: 'A', insertions: 1, deletions: 0, isBinary: false }] });
+      expect(await readServiceJob(service, data.id, { ...base, requestId: 'stale-summary', read: 'commit-summary', commit })).toMatchObject({ read: 'commit-summary', commit: { id: commit, statistics: { files: 1, insertions: 1, deletions: 0 } } });
+      const preview = await readServiceJob(service, data.id, { ...base, requestId: 'stale-preview', read: 'commit-file-preview', commit, parent: null, originalPath: null, modifiedPath: 'tracked.txt', offset: 0, limit: 1000 }) as { read: string; chunk: { text: string; snapshot: string } };
+      expect(preview.read).toBe('commit-file-preview');
+      expect(preview.chunk.text).toContain('+one');
+      expect(preview.chunk.snapshot).toBe(data.snapshot);
+      const status = await service.handle(new Request('http://127.0.0.1/read', { method: 'POST', headers: { authorization: 'Bearer test-token' }, body: JSON.stringify({ ...base, requestId: 'stale-status', read: 'status' }) }));
+      const accepted = await status.json() as { ok: boolean; data?: { jobId: string }; error?: { code: string } };
+      if (accepted.ok) {
+        const job = await service.handle(new Request('http://127.0.0.1/jobs/get', { method: 'POST', headers: { authorization: 'Bearer test-token' }, body: JSON.stringify({ version: 1, requestId: 'stale-status-job', operation: 'jobs/get', repositoryId: data.id, jobId: accepted.data!.jobId }) }));
+        let body = await job.json() as { data: { state: string; error: { code: string } | null } };
+        for (let attempt = 0; body.data.state === 'queued' || body.data.state === 'running'; attempt += 1) {
+          if (attempt > 100) throw new Error('status job did not settle');
+          await new Promise<void>((resolve) => setTimeout(resolve, 10));
+          body = await (await service.handle(new Request('http://127.0.0.1/jobs/get', { method: 'POST', headers: { authorization: 'Bearer test-token' }, body: JSON.stringify({ version: 1, requestId: `stale-status-job-${attempt}`, operation: 'jobs/get', repositoryId: data.id, jobId: accepted.data!.jobId }) }))).json() as typeof body;
+        }
+        expect(body.data.error?.code).toBe('snapshot-conflict');
+      } else expect(accepted.error?.code).toBe('snapshot-conflict');
+    } finally {
+      service.close();
+    }
+  });
+
+  test('keeps four pending commit-author reads out of local read slots', async () => {
+    const directory = await repository();
+    const commit = (await git(directory, 'rev-parse', 'HEAD')).trim();
+    let release: () => void = () => undefined;
+    const pending = new Promise<void>((resolve) => { release = resolve; });
+    let signalStarted: () => void = () => undefined;
+    const started = new Promise<void>((resolve) => { signalStarted = resolve; });
+    const service = createGitService({ token: 'test-token', readCommitAuthor: async () => { signalStarted(); await pending; return null; } });
+    try {
+      const opened = await service.handle(new Request('http://127.0.0.1/repo/open', { method: 'POST', headers: { authorization: 'Bearer test-token' }, body: JSON.stringify({ version: 1, requestId: 'open-authors', operation: 'repo/open', repositoryId: 'ignored', directory }) }));
+      const { data } = await opened.json() as { data: { id: string; snapshot: string } };
+      const authorJobs = await Promise.all(Array.from({ length: 4 }, async (_, index) => {
+        const response = await service.handle(new Request('http://127.0.0.1/read', { method: 'POST', headers: { authorization: 'Bearer test-token' }, body: JSON.stringify({ version: 1, requestId: `author-${index}`, operation: 'read', read: 'commit-author', repositoryId: data.id, snapshot: data.snapshot, commit }) }));
+        return (await response.json() as { data: { jobId: string } }).data.jobId;
+      }));
+      await started;
+      expect(await readServiceJob(service, data.id, { version: 1, requestId: 'status-after-authors', operation: 'read', read: 'status', repositoryId: data.id, snapshot: data.snapshot })).toMatchObject({ read: 'status' });
+      const queued = await service.handle(new Request('http://127.0.0.1/jobs/get', { method: 'POST', headers: { authorization: 'Bearer test-token' }, body: JSON.stringify({ version: 1, requestId: 'author-poll', operation: 'jobs/get', repositoryId: data.id, jobId: authorJobs[0] }) }));
+      expect((await queued.json() as { data: { state: string } }).data.state).toBe('running');
+      release();
+      for (const jobId of authorJobs) {
+        let state = 'queued';
+        let author: unknown = undefined;
+        for (let attempt = 0; attempt < 100 && state !== 'completed'; attempt += 1) {
+          const response = await service.handle(new Request('http://127.0.0.1/jobs/get', { method: 'POST', headers: { authorization: 'Bearer test-token' }, body: JSON.stringify({ version: 1, requestId: `author-complete-${attempt}`, operation: 'jobs/get', repositoryId: data.id, jobId }) }));
+          const body = await response.json() as { data: { state: string; data: { author: unknown } | null } };
+          state = body.data.state; author = body.data.data?.author;
+          if (state !== 'completed') await new Promise<void>((resolve) => setTimeout(resolve, 10));
+        }
+        expect(state).toBe('completed');
+        expect(author).toBeNull();
+      }
+    } finally { release(); service.close(); }
+  });
+
   test('opens and reads history from a repository whose index listing exceeds the default Git output limit', async () => {
     const directory = await repository();
     const indexedDirectory = join(directory, 'indexed');

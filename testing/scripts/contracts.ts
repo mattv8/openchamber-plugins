@@ -48,6 +48,7 @@ export function hostEnvironment(runRoot: string): NodeJS.ProcessEnv {
     OPENCODE_CONFIG_DIR: resolve(root, 'opencode-config'),
     OPENCODE_CONFIG: resolve(root, 'opencode-config/opencode.json'),
     OPENCHAMBER_DESKTOP_USER_DATA_DIR: resolve(root, 'electron-user-data'),
+    OPENCHAMBER_MANAGED_PROCESS_REGISTRY: resolve(root, 'managed-opencode'),
   };
 }
 
@@ -63,10 +64,14 @@ export function isolatedEnvironment(runRoot: string, opencodeBinary: string, inh
 }
 
 export function electronExecutableCandidates(source: string, platform: NodeJS.Platform = process.platform): string[] {
-  const dist = resolve(source, 'node_modules/electron/dist');
-  if (platform === 'darwin') return [join(dist, 'Electron.app/Contents/MacOS/Electron')];
-  if (platform === 'win32') return [join(dist, 'electron.exe')];
-  return [join(dist, 'electron')];
+  const dists = [
+    resolve(source, 'packages/electron/node_modules/electron/dist'),
+    resolve(source, 'node_modules/electron/dist'),
+  ];
+  const executable = platform === 'darwin'
+    ? 'Electron.app/Contents/MacOS/Electron'
+    : platform === 'win32' ? 'electron.exe' : 'electron';
+  return dists.map((dist) => join(dist, executable));
 }
 
 export function uploadHeaders(bytes: number): Record<string, string> {
