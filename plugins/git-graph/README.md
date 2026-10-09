@@ -10,7 +10,15 @@ The release package root has a real `package.json` with an official v2 manifest.
 
 ## Install
 
-[Download the latest Git Graph ZIP](https://github.com/mattv8/openchamber-plugins/releases/latest/download/git-graph.zip), then choose Settings → Extensions → Add in OpenChamber and select the archive. OpenChamber installs the precompiled package. It does not build the plugin during installation.
+For Git-based update checks, choose **Settings → Extensions → Add** in OpenChamber and enter:
+
+```text
+https://github.com/mattv8/openchamber-plugins.git#git-graph
+```
+
+The `git-graph` branch contains the precompiled plugin at its root. Keep the branch suffix: `main` is the source workspace, not an installable extension. OpenChamber checks the stored branch for updates; use its extension update controls to apply them. It does not automatically install updates in the background.
+
+Alternatively, [download the latest Git Graph ZIP](https://github.com/mattv8/openchamber-plugins/releases/latest/download/git-graph.zip) and select it in the Add dialog. Choose the **`git-graph.zip` asset**, not GitHub's “Source code” archive. ZIP installs do not retain a Git origin for branch-based updates. Both methods install the same precompiled package without building it on your machine.
 
 [Tagged releases](https://github.com/mattv8/openchamber-plugins/releases) include checksums, source provenance, and version-specific downloads.
 

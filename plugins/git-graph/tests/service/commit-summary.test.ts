@@ -182,7 +182,7 @@ describe('commit-summary read', () => {
   test('truncates a Unicode body without splitting a code point', async () => {
     const { root, repository, context } = await fixture();
     await writeFile(join(root, 'file.txt'), 'one\n'); await git(root, ['add', '--', 'file.txt']);
-    await git(root, ['commit', '-m', `subject\n\n${'🙂'.repeat(60_000)}`]);
+    await git(root, ['commit', '-F', '-'], { input: `subject\n\n${'🙂'.repeat(60_000)}` });
     const commit = (await git(root, ['rev-parse', 'HEAD'])).stdout.toString().trim();
 
     const result = await summary(context, repository, commit);
@@ -194,7 +194,7 @@ describe('commit-summary read', () => {
   test('keeps escaped Unicode summaries within the advertised serialized budget', async () => {
     const { root, repository, context } = await fixture();
     await writeFile(join(root, 'file.txt'), 'one\n'); await git(root, ['add', '--', 'file.txt']);
-    await git(root, ['commit', '-m', `subject\n\n${'"\n🙂'.repeat(50_000)}`]);
+    await git(root, ['commit', '-F', '-'], { input: `subject\n\n${'"\n🙂'.repeat(50_000)}` });
     const commit = (await git(root, ['rev-parse', 'HEAD'])).stdout.toString().trim();
 
     const result = await summary(context, repository, commit);

@@ -85,7 +85,8 @@ jobs:
           fi
           (cd artifacts/git-graph && sha256sum -c git-graph.zip.sha256)
           test "$(sha256sum artifacts/git-graph/git-graph.zip | cut -d' ' -f1)" = "$EXPECTED_PLUGIN_SHA256"
-      - name: Publish only the validated tested archive
+      - id: release
+        name: Publish only the validated tested archive
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -93,3 +94,11 @@ jobs:
           RELEASE_VERSION: ${{ needs.plan.outputs.release_version }}
           PREVIOUS_TAG: ${{ steps.fresh-plan.outputs.previous_tag }}
         run: bun run tooling/publisher.ts
+      - name: Publish validated package to Git branch
+        if: steps.release.outputs.published == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          SOURCE_SHA: ${{ needs.plan.outputs.source_sha }}
+          RELEASE_VERSION: ${{ needs.plan.outputs.release_version }}
+        run: bun run tooling/git-distribution.ts

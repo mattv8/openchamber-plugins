@@ -157,6 +157,7 @@ async function verifyStatusSection(page: Page, evidenceRoot: string, fixture: st
 
   await checkActualBehavior('host header Range control switches history and Refresh reloads it', failures, async () => {
     await openSection();
+    const refresh = section.locator('[data-work-status-control="refresh"]').getByRole('button');
     if (await frame.getByRole('tab', { name: 'Auto', exact: true }).count() !== 0) throw new Error('body controls rendered although the host supports header controls');
     const range = section.getByRole('button', { name: /^Range/ });
     await range.click();
@@ -165,15 +166,15 @@ async function verifyStatusSection(page: Page, evidenceRoot: string, fixture: st
     await page.keyboard.press('Escape');
     await section.getByRole('button', { name: /^Range: All/ }).waitFor({ timeout: 10_000 });
     // Each load toggles the host-rendered Refresh control; reopen the menu once the reload settles.
-    await section.getByRole('button', { name: 'Refresh', exact: true }).and(page.locator(':enabled')).waitFor({ timeout: 15_000 });
+    await refresh.and(page.locator(':enabled')).waitFor({ timeout: 15_000 });
     await frame.locator('[aria-busy="true"]').waitFor({ state: 'detached', timeout: 15_000 });
     await section.getByRole('button', { name: /^Range/ }).click();
     await page.getByRole('menuitemradio', { name: 'Auto', exact: true }).click();
     await page.keyboard.press('Escape');
-    await section.getByRole('button', { name: 'Refresh', exact: true }).click();
+    await refresh.click();
     await frame.getByRole('button', { name: /Second fixture commit/ }).waitFor({ state: 'visible', timeout: 15_000 });
     // Refresh disables itself while loading; wait for the reload to finish before the next step.
-    await section.getByRole('button', { name: 'Refresh', exact: true }).and(page.locator(':enabled')).waitFor({ timeout: 15_000 });
+    await refresh.and(page.locator(':enabled')).waitFor({ timeout: 15_000 });
   });
 
   await checkActualBehavior('hovering a commit shows its card outside the status frame without taking focus', failures, async () => {

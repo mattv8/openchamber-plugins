@@ -1,10 +1,10 @@
 import { expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
-import { mkdtemp, mkdir, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { releaseManifest } from './release.js';
-import { assertPublication, publish, type Run } from './publisher.js';
+import { assertPublication, publish, type Run, writePublishedOutput } from './publisher.js';
 const source = 'a'.repeat(40);
 const fixture = async () => {
   const root = await mkdtemp(resolve(tmpdir(), 'publisher-'));
@@ -41,7 +41,7 @@ test('publication rejects mismatched root and dist manifest versions', async () 
 test('a completed release is immutable and a missing release is created then resumed as a draft', () => {
   const calls: string[][] = [];
   const completed: Run = (command, args) => { if (command === 'git') return { exitCode: 0, stdout: args[0] === 'rev-parse' ? `${source}\n` : '', stderr: '' }; calls.push(args); return { exitCode: 0, stdout: `{"isDraft":false,"targetCommitish":"${source}","assets":[{"name":"git-graph.zip","size":1},{"name":"git-graph.zip.sha256","size":1},{"name":"provenance.json","size":1}]}`, stderr: '' }; };
-  publish(completed, 'assets', '0.1.0', source, 'owner/repo');
+  expect(publish(completed, 'assets', '0.1.0', source, 'owner/repo')).toBe(true);
   expect(calls).toHaveLength(1);
   let views = 0;
   const draft: Run = (command, args) => {
@@ -51,7 +51,7 @@ test('a completed release is immutable and a missing release is created then res
     if (args[1] === 'view') return { exitCode: 0, stdout: `{"isDraft":true,"targetCommitish":"${source}"}`, stderr: '' };
     return { exitCode: 0, stdout: '', stderr: '' };
   };
-  publish(draft, 'assets', '0.1.1', source, 'owner/repo', 'git-graph/v0.1.0');
+  expect(publish(draft, 'assets', '0.1.1', source, 'owner/repo', 'git-graph/v0.1.0')).toBe(true);
   expect(calls.some((args) => args.includes('--generate-notes') && args.includes('--notes-start-tag'))).toBe(true);
   expect(calls.filter((args) => args[1] === 'upload')).toHaveLength(3);
 });
@@ -100,8 +100,18 @@ test('a superseded source cannot change a newer draft', () => {
     calls.push(args);
     throw new Error('A stale source must not call GitHub');
   };
-  publish(run, 'assets', '0.1.0', source, 'owner/repo');
+  expect(publish(run, 'assets', '0.1.0', source, 'owner/repo')).toBe(false);
   expect(calls).toHaveLength(0);
+});
+
+test('publisher records whether its release is safe for distribution', async () => {
+  const root = await mkdtemp(resolve(tmpdir(), 'publisher-output-'));
+  const output = resolve(root, 'github-output');
+  try {
+    await writePublishedOutput(true, output);
+    await writePublishedOutput(false, output);
+    expect(await readFile(output, 'utf8')).toBe('published=true\npublished=false\n');
+  } finally { await rm(root, { recursive: true, force: true }); }
 });
 
 test('a foreign draft is preserved and incomplete published releases fail', () => {

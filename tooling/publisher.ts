@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { appendFile, mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { parseManifestJson } from '@openchamber/sdk/schemas';
@@ -26,9 +26,9 @@ export const assertPublication = async (directory: string, version: string, expe
 };
 const missingRelease = (result: ReturnType<Run>) => result.exitCode !== 0 && /(?:not found|404)/i.test(`${result.stdout}\n${result.stderr}`);
 const assetsComplete = (assets: Asset[] | undefined) => ['git-graph.zip', 'git-graph.zip.sha256', 'provenance.json'].every((name) => assets?.some((asset) => asset.name === name && asset.size > 0));
-export const publish = (run: Run, directory: string, version: string, sourceSHA: string, repo: string, previousTag?: string): void => {
+export const publish = (run: Run, directory: string, version: string, sourceSHA: string, repo: string, previousTag?: string): boolean => {
   const fetch = run('git', ['fetch', 'origin', 'main', '--tags']); if (fetch.exitCode) throw new Error(fetch.stderr || 'Unable to refresh main');
-  const main = run('git', ['rev-parse', 'origin/main']); if (main.exitCode) throw new Error(main.stderr || 'Unable to resolve main'); if (main.stdout.trim() !== sourceSHA) return;
+  const main = run('git', ['rev-parse', 'origin/main']); if (main.exitCode) throw new Error(main.stderr || 'Unable to resolve main'); if (main.stdout.trim() !== sourceSHA) return false;
   const tag = `${tagPrefix}${version}`; const viewArgs = ['release', 'view', tag, '--repo', repo, '--json', 'isDraft,targetCommitish,body,assets'];
   let viewed = run('gh', viewArgs); let release: ReleaseView | undefined;
   if (!viewed.exitCode) release = releaseView(viewed.stdout); else if (!missingRelease(viewed)) throw new Error(viewed.stderr || 'Unable to query release');
@@ -36,15 +36,19 @@ export const publish = (run: Run, directory: string, version: string, sourceSHA:
     if (!release.isDraft || !release.body?.includes(marker)) throw new Error('Existing release tag targets a different source SHA');
     const deleted = run('gh', ['release', 'delete', tag, '--repo', repo, '--yes']); if (deleted.exitCode) throw new Error(deleted.stderr || 'Unable to supersede automated draft'); release = undefined;
   }
-  if (release && !release.isDraft) { if (!assetsComplete(release.assets)) throw new Error('Published release is missing required assets'); return; }
+  if (release && !release.isDraft) { if (!assetsComplete(release.assets)) throw new Error('Published release is missing required assets'); return true; }
   if (!release) {
     const create = ['release', 'create', tag, '--repo', repo, '--target', sourceSHA, '--draft', '--generate-notes', '--notes', marker, '--title', `Git Graph v${version}`]; if (previousTag) create.push('--notes-start-tag', previousTag);
     const created = run('gh', create); viewed = run('gh', viewArgs); if (viewed.exitCode) throw new Error(created.stderr || viewed.stderr || 'Unable to create or find release'); release = releaseView(viewed.stdout);
   }
   if (release.targetCommitish && release.targetCommitish !== sourceSHA) throw new Error('Existing release tag targets a different source SHA');
   // Another publisher may have completed the release between create and view.
-  if (!release.isDraft) { if (!assetsComplete(release.assets)) throw new Error('Published release is missing required assets'); return; }
+  if (!release.isDraft) { if (!assetsComplete(release.assets)) throw new Error('Published release is missing required assets'); return true; }
   for (const asset of ['git-graph.zip', 'git-graph.zip.sha256', 'provenance.json']) { const upload = run('gh', ['release', 'upload', tag, resolve(directory, asset), '--repo', repo, '--clobber']); if (upload.exitCode) throw new Error(upload.stderr || `Unable to upload ${asset}`); }
   const edit = run('gh', ['release', 'edit', tag, '--repo', repo, '--draft=false', '--latest']); if (edit.exitCode) throw new Error(edit.stderr || 'Unable to publish release');
+  return true;
 };
-if (import.meta.main) { const directory = process.env.ARTIFACT_DIRECTORY ?? 'artifacts/git-graph'; const version = process.env.RELEASE_VERSION ?? ''; const sourceSHA = process.env.SOURCE_SHA ?? ''; const repo = process.env.GH_REPO ?? ''; if (!repo) throw new Error('GH_REPO is required'); await assertPublication(directory, version, sourceSHA); const run: Run = (command, args) => { const r = Bun.spawnSync([command, ...args], { stdout: 'pipe', stderr: 'pipe' }); return { exitCode: r.exitCode, stdout: new TextDecoder().decode(r.stdout), stderr: new TextDecoder().decode(r.stderr) }; }; publish(run, directory, version, sourceSHA, repo, process.env.PREVIOUS_TAG || undefined); }
+export const writePublishedOutput = async (published: boolean, output = process.env.GITHUB_OUTPUT): Promise<void> => {
+  if (output) await appendFile(output, `published=${published}\n`);
+};
+if (import.meta.main) { const directory = process.env.ARTIFACT_DIRECTORY ?? 'artifacts/git-graph'; const version = process.env.RELEASE_VERSION ?? ''; const sourceSHA = process.env.SOURCE_SHA ?? ''; const repo = process.env.GH_REPO ?? ''; if (!repo) throw new Error('GH_REPO is required'); await assertPublication(directory, version, sourceSHA); const run: Run = (command, args) => { const r = Bun.spawnSync([command, ...args], { stdout: 'pipe', stderr: 'pipe' }); return { exitCode: r.exitCode, stdout: new TextDecoder().decode(r.stdout), stderr: new TextDecoder().decode(r.stderr) }; }; await writePublishedOutput(publish(run, directory, version, sourceSHA, repo, process.env.PREVIOUS_TAG || undefined)); }
