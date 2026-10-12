@@ -31,7 +31,7 @@ Allow the Git service and GitHub avatar origin on the extension's settings card.
 
 Graph colors follow the theme's syntax colors, matching the original. Range choices are saved per repository on this device.
 
-For GitHub remotes, hover cards look up the commit author through the GitHub CLI (`gh`) using its existing login. If the CLI is missing or unauthenticated, the service tries GitHub's public API, which cannot read private repositories and has a lower rate limit. Lookups are cached; unavailable authors and failed images keep the initials fallback. The plugin never reads or displays the CLI's token. Local commit messages, statistics and changed files remain available independently of GitHub.
+For GitHub remotes, hover cards look up the commit author through the GitHub CLI (`gh`) using its existing login. If the CLI is missing or unauthenticated, the service tries GitHub's public API, which cannot read private repositories and has a lower rate limit. The plugin saves usernames and small avatar images on the OpenChamber server for 24 hours per author email, including confirmed “no linked account” results. The cache survives restarts and holds up to 100 authors within a 1 MiB budget; older entries may expire sooner when it fills. Failed profile lookups retry after a minute. Unavailable authors and failed images keep the initials fallback. The plugin never reads or displays the CLI's token. Local commit messages, statistics and changed files remain available independently of GitHub.
 
 Extensions are supported in OpenChamber web and desktop. VS Code and mobile do not load this plugin.
 

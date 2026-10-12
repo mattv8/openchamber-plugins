@@ -1,14 +1,14 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { z } from 'zod';
-import { CommitAuthorSchema, type CommitAuthor } from '../shared/protocol.js';
+import { CommitAuthorSchema, type CommitAuthorLookup } from '../shared/protocol.js';
 import type { Repository } from './contracts.js';
 
 const GH_TIMEOUT_MS = 5_000;
 const MAX_OUTPUT_BYTES = 256_000;
 const MAX_CACHE_ENTRIES = 256;
 const MAX_IN_FLIGHT = 32;
-const POSITIVE_TTL_MS = 10 * 60_000;
-const NEGATIVE_TTL_MS = 60_000;
+const RESOLVED_TTL_MS = 24 * 60 * 60_000;
+const UNAVAILABLE_TTL_MS = 60_000;
 const SHA = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i;
 const GITHUB_NAME = /^[A-Za-z0-9](?:[A-Za-z0-9_.-]{0,98}[A-Za-z0-9])?$/;
 
@@ -73,11 +73,15 @@ function githubRepository(value: string): { owner: string; repo: string } | null
 
 const GitHubAuthorSchema = z.object({ login: z.string(), avatar_url: z.string() }).passthrough().nullable();
 
-function authorFrom(value: unknown): CommitAuthor | null {
-  if (!value || typeof value !== 'object') return null;
-  const raw = GitHubAuthorSchema.safeParse((value as { author?: unknown }).author);
-  if (!raw.success || raw.data === null) return null;
-  return CommitAuthorSchema.safeParse({ login: raw.data.login, avatarUrl: raw.data.avatar_url }).data ?? null;
+const unavailable = (): CommitAuthorLookup => ({ resolution: 'unavailable', author: null });
+
+function authorFrom(value: unknown): CommitAuthorLookup {
+  if (!value || typeof value !== 'object' || !Object.hasOwn(value, 'author')) return unavailable();
+  const raw = GitHubAuthorSchema.safeParse((value as { author: unknown }).author);
+  if (!raw.success) return unavailable();
+  if (raw.data === null) return { resolution: 'unlinked', author: null };
+  const author = CommitAuthorSchema.safeParse({ login: raw.data.login, avatarUrl: raw.data.avatar_url });
+  return author.success ? { resolution: 'linked', author: author.data } : unavailable();
 }
 
 function ghUnavailable(result: GhResult): boolean {
@@ -106,41 +110,48 @@ export function createCommitAuthorLookup(options: CommitAuthorLookupOptions) {
   const fetcher: GitHubFetch = options.fetch ?? globalThis.fetch;
   const now = options.now ?? Date.now;
   const timeoutMs = options.timeoutMs ?? GH_TIMEOUT_MS;
-  const cache = new Map<string, { author: CommitAuthor | null; expiresAt: number }>();
-  const inFlight = new Map<string, Promise<CommitAuthor | null>>();
+  const cache = new Map<string, { lookup: CommitAuthorLookup; expiresAt: number }>();
+  const inFlight = new Map<string, Promise<CommitAuthorLookup>>();
   const controllers = new Set<AbortController>();
   let closed = false;
-  const retain = (key: string, author: CommitAuthor | null) => { if (closed) return author; cache.set(key, { author, expiresAt: now() + (author ? POSITIVE_TTL_MS : NEGATIVE_TTL_MS) }); while (cache.size > MAX_CACHE_ENTRIES) cache.delete(cache.keys().next().value as string); return author; };
-  const read = async (repository: Repository, commit: string): Promise<CommitAuthor | null> => {
-    if (closed || !SHA.test(commit)) return null;
+  const retain = (key: string, lookup: CommitAuthorLookup) => {
+    const resolved = lookup.resolution === 'unavailable' ? lookup : { ...lookup, fetchedAt: now() };
+    if (closed) return resolved;
+    const ttl = resolved.resolution === 'unavailable' ? UNAVAILABLE_TTL_MS : RESOLVED_TTL_MS;
+    cache.set(key, { lookup: resolved, expiresAt: now() + ttl });
+    while (cache.size > MAX_CACHE_ENTRIES) cache.delete(cache.keys().next().value as string);
+    return resolved;
+  };
+  const read = async (repository: Repository, commit: string): Promise<CommitAuthorLookup> => {
+    if (closed || !SHA.test(commit)) return unavailable();
     let remotes: Remote[];
-    try { remotes = await options.readRemotes(repository); } catch { return null; }
-    if (closed) return null;
+    try { remotes = await options.readRemotes(repository); } catch { return unavailable(); }
+    if (closed) return unavailable();
     const selected = [...remotes.filter((remote) => remote.name === 'origin'), ...remotes.filter((remote) => remote.name !== 'origin')]
       .flatMap((remote) => [remote.fetchUrl, remote.pushUrl].map((url) => ({ remote, github: url ? githubRepository(url) : null }))).find((value) => value.github);
-    if (!selected?.github) return null;
+    if (!selected?.github) return unavailable();
     const github = selected.github;
     const key = `${repository.root}\0${selected.remote.name}\0${github.owner}/${github.repo}\0${commit.toLowerCase()}`;
-    const cached = cache.get(key); if (cached && cached.expiresAt > now()) return cached.author; if (cached) cache.delete(key);
+    const cached = cache.get(key); if (cached && cached.expiresAt > now()) return cached.lookup; if (cached) cache.delete(key);
     const pending = inFlight.get(key); if (pending) return pending;
-    if (inFlight.size >= MAX_IN_FLIGHT) return null;
+    if (inFlight.size >= MAX_IN_FLIGHT) return unavailable();
     const operation = (async () => {
       const controller = new AbortController(); controllers.add(controller);
       try {
         const resource = `repos/${github.owner}/${github.repo}/commits/${commit}`;
         let gh: GhResult;
-        try { gh = await execute(['api', '--hostname', 'github.com', resource], controller.signal); } catch { return retain(key, null); }
-        if (closed || controller.signal.aborted) return null;
-        if (gh.exitCode === 0) { try { return retain(key, authorFrom(JSON.parse(gh.stdout.toString('utf8')))); } catch { return retain(key, null); } }
-        if (!ghUnavailable(gh)) return retain(key, null);
+        try { gh = await execute(['api', '--hostname', 'github.com', resource], controller.signal); } catch { return retain(key, unavailable()); }
+        if (closed || controller.signal.aborted) return unavailable();
+        if (gh.exitCode === 0) { try { return retain(key, authorFrom(JSON.parse(gh.stdout.toString('utf8')))); } catch { return retain(key, unavailable()); } }
+        if (!ghUnavailable(gh)) return retain(key, unavailable());
         const timeout = setTimeout(() => controller.abort(), timeoutMs);
         try {
           const response = await fetcher(`https://api.github.com/${resource}`, { headers: { accept: 'application/vnd.github+json' }, redirect: 'error', signal: controller.signal });
-          if (!response.ok) return retain(key, null);
+          if (!response.ok) return retain(key, unavailable());
           const body = await boundedResponseText(response, controller.signal);
-          if (body === null) return retain(key, null);
-          try { return retain(key, authorFrom(JSON.parse(body))); } catch { return retain(key, null); }
-        } catch { return closed || controller.signal.aborted ? null : retain(key, null); } finally { clearTimeout(timeout); }
+          if (body === null) return retain(key, unavailable());
+          try { return retain(key, authorFrom(JSON.parse(body))); } catch { return retain(key, unavailable()); }
+        } catch { return closed || controller.signal.aborted ? unavailable() : retain(key, unavailable()); } finally { clearTimeout(timeout); }
       } finally { controllers.delete(controller); }
     })();
     inFlight.set(key, operation);

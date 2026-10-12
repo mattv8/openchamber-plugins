@@ -52,6 +52,12 @@ describe('readRepository', () => {
     expect(second.items[0]?.message).toBe('root subject\n\nroot body\n');
   });
 
+  test('returns unavailable when no commit author resolver is configured', async () => {
+    const { repository, head } = await fixture();
+    const result = await readRepository(context(), repository, { version: 1, requestId: 'author', operation: 'read', read: 'commit-author', repositoryId: 'repo', snapshot: 'snapshot', commit: head });
+    expect(result).toEqual({ read: 'commit-author', resolution: 'unavailable', author: null });
+  });
+
   test('pages large ref sets within the response budget without dropping ref metadata', async () => {
     const { root, repository } = await fixture();
     const target = (await git(root, ['rev-parse', 'HEAD'])).stdout.toString().trim();

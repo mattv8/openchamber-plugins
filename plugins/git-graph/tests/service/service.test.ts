@@ -202,7 +202,7 @@ describe('Git loopback service', () => {
     const pending = new Promise<void>((resolve) => { release = resolve; });
     let signalStarted: () => void = () => undefined;
     const started = new Promise<void>((resolve) => { signalStarted = resolve; });
-    const service = createGitService({ token: 'test-token', readCommitAuthor: async () => { signalStarted(); await pending; return null; } });
+    const service = createGitService({ token: 'test-token', readCommitAuthor: async () => { signalStarted(); await pending; return { resolution: 'unavailable', author: null }; } });
     try {
       const opened = await service.handle(new Request('http://127.0.0.1/repo/open', { method: 'POST', headers: { authorization: 'Bearer test-token' }, body: JSON.stringify({ version: 1, requestId: 'open-authors', operation: 'repo/open', repositoryId: 'ignored', directory }) }));
       const { data } = await opened.json() as { data: { id: string; snapshot: string } };

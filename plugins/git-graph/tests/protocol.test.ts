@@ -64,6 +64,19 @@ describe('Git Graph service protocol', () => {
     })).toThrow();
   });
 
+  test('distinguishes linked, unlinked, and unavailable commit author responses', () => {
+    const base = { version: 1, requestId: 'author-response', operation: 'read', ok: true, data: { read: 'commit-author' } };
+    const author = { login: 'octocat', avatarUrl: 'https://avatars.githubusercontent.com/u/583231?v=4' };
+    expect(() => GitGraphResponseSchema.parse({ ...base, data: { ...base.data, resolution: 'linked', author } })).not.toThrow();
+    expect(() => GitGraphResponseSchema.parse({ ...base, data: { ...base.data, resolution: 'linked', author, fetchedAt: 0 } })).not.toThrow();
+    expect(() => GitGraphResponseSchema.parse({ ...base, data: { ...base.data, resolution: 'unlinked', author: null } })).not.toThrow();
+    expect(() => GitGraphResponseSchema.parse({ ...base, data: { ...base.data, resolution: 'unlinked', author: null, fetchedAt: 1 } })).not.toThrow();
+    expect(() => GitGraphResponseSchema.parse({ ...base, data: { ...base.data, resolution: 'unavailable', author: null } })).not.toThrow();
+    expect(() => GitGraphResponseSchema.parse({ ...base, data: { ...base.data, resolution: 'linked', author, fetchedAt: 1.5 } })).toThrow();
+    expect(() => GitGraphResponseSchema.parse({ ...base, data: { ...base.data, resolution: 'linked', author: null } })).toThrow();
+    expect(() => GitGraphResponseSchema.parse({ ...base, data: { ...base.data, resolution: 'unlinked', author } })).toThrow();
+  });
+
   test('accepts Git ISO timestamps with a UTC offset', () => {
     expect(() => GitGraphResponseSchema.parse({
       version: 1, requestId: 'history-response', operation: 'jobs/get', ok: true,

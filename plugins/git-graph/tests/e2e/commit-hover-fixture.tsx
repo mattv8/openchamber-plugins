@@ -23,6 +23,15 @@ let setEnabled: ((enabled: boolean) => void) | null = null;
 let rerender: (() => void) | null = null;
 let setAvatarDirectory: ((directory: '/avatar-a' | '/avatar-b') => void) | null = null;
 const delayedAuthors: Array<{ directory: string; resolve: (login: string) => void }> = [];
+let storageReads = 0;
+let storageWrites = 0;
+
+const storage = {
+  get: async (key: string) => { storageReads += 1; const value = sessionStorage.getItem(`commit-hover:${key}`); return value ? JSON.parse(value) : undefined; },
+  set: async (key: string, value: unknown) => { storageWrites += 1; sessionStorage.setItem(`commit-hover:${key}`, JSON.stringify(value)); },
+  delete: async (key: string) => { sessionStorage.removeItem(`commit-hover:${key}`); },
+  keys: async () => Object.keys(sessionStorage).filter((key) => key.startsWith('commit-hover:')).map((key) => key.slice('commit-hover:'.length)),
+};
 
 declare global {
   interface Window {
@@ -37,6 +46,9 @@ declare global {
       menuClosed(): void;
       setAvatarDirectory(directory: '/avatar-a' | '/avatar-b'): void;
       resolveAvatarAuthor(directory: '/avatar-a' | '/avatar-b', login: string): void;
+      storageCounts(): { reads: number; writes: number };
+      storedProfiles(): unknown[];
+      clearStorage(): void;
     };
   }
 }
@@ -47,6 +59,7 @@ const host = createFixtureHost({
   setPopoverAnchorActive: async () => undefined,
   onPopoverClosed: () => () => undefined,
   setHeight: async () => undefined,
+  storage,
 });
 
 const service: GitGraphServiceClient = {
@@ -60,14 +73,17 @@ const service: GitGraphServiceClient = {
       const message = request.repositoryId === 'repo-a' ? 'summary from repository A' : 'summary from repository B';
       return Promise.resolve({ version: 1, requestId: request.requestId, operation: 'read', ok: true, data: { read: 'commit-summary', commit: { id: request.commit, parentIds: [], subject: 'Subject', message, author: 'Author', authorEmail: 'author@example.test', timestamp: '2026-01-01T00:00:00.000Z', statistics: { files: 1, insertions: 2, deletions: 0 } }, messageTruncated: false } });
     }
-    if (request.operation === 'repo/open') return Promise.resolve({ version: 1, requestId: request.requestId, operation: 'repo/open', ok: true, data: { id: `repo-${request.directory.slice(1)}`, root: request.directory, commonGitDir: `${request.directory}/.git`, head: sha, snapshot: `${request.directory}-snapshot` } });
+    if (request.operation === 'repo/open') {
+      if (new URL(window.location.href).searchParams.get('scenario') === 'repo-open-failure') return Promise.resolve({ version: 1, requestId: request.requestId, operation: 'repo/open', ok: false, error: { code: 'not-a-repository', message: 'fixture repo unavailable', retryable: false, snapshot: null } });
+      return Promise.resolve({ version: 1, requestId: request.requestId, operation: 'repo/open', ok: true, data: { id: `repo-${request.directory.slice(1)}`, root: request.directory, commonGitDir: `${request.directory}/.git`, head: sha, snapshot: `${request.directory}-snapshot` } });
+    }
     if (request.operation === 'read' && request.read === 'commit-author') {
       const scenario = new URL(window.location.href).searchParams.get('scenario');
       if (scenario === 'avatar-error') return Promise.reject(new Error('author unavailable'));
-      if (scenario === 'avatar-null') return Promise.resolve({ version: 1, requestId: request.requestId, operation: 'read', ok: true, data: { read: 'commit-author', author: null } });
-      if (scenario === 'avatar-unsafe') return Promise.resolve({ version: 1, requestId: request.requestId, operation: 'read', ok: true, data: { read: 'commit-author', author: { login: 'unsafe', avatarUrl: 'https://avatars.githubusercontent.com.evil.test/u/1' } } });
-      if (scenario === 'avatar-stale') return new Promise((resolve) => { delayedAuthors.push({ directory: request.repositoryId, resolve: (login) => resolve({ version: 1, requestId: request.requestId, operation: 'read', ok: true, data: { read: 'commit-author', author: { login, avatarUrl: `https://avatars.githubusercontent.com/u/${login === 'broken' ? '404' : '1'}` } } }) }); });
-      return Promise.resolve({ version: 1, requestId: request.requestId, operation: 'read', ok: true, data: { read: 'commit-author', author: { login: scenario === 'avatar-failure' ? 'broken' : 'octocat', avatarUrl: `https://avatars.githubusercontent.com/u/${scenario === 'avatar-failure' ? '404' : '1'}` } } });
+      if (scenario === 'avatar-null') return Promise.resolve({ version: 1, requestId: request.requestId, operation: 'read', ok: true, data: { read: 'commit-author', resolution: 'unlinked', author: null } });
+      if (scenario === 'avatar-unsafe') return Promise.resolve({ version: 1, requestId: request.requestId, operation: 'read', ok: true, data: { read: 'commit-author', resolution: 'linked', author: { login: 'unsafe', avatarUrl: 'https://avatars.githubusercontent.com.evil.test/u/1' } } });
+      if (scenario === 'avatar-stale') return new Promise((resolve) => { delayedAuthors.push({ directory: request.repositoryId, resolve: (login) => resolve({ version: 1, requestId: request.requestId, operation: 'read', ok: true, data: { read: 'commit-author', resolution: 'linked', author: { login, avatarUrl: `https://avatars.githubusercontent.com/u/${login === 'broken' ? '404' : '1'}` } } }) }); });
+      return Promise.resolve({ version: 1, requestId: request.requestId, operation: 'read', ok: true, data: { read: 'commit-author', resolution: 'linked', author: { login: scenario === 'avatar-failure' ? 'broken' : 'octocat', avatarUrl: `https://avatars.githubusercontent.com/u/${scenario === 'avatar-failure' ? '404' : '1'}` }, fetchedAt: Date.now() - 60 * 60 * 1_000 } });
     }
     throw new Error('Unexpected request');
   },
@@ -102,7 +118,7 @@ function AvatarFixture() {
 }
 
 window.commitHover = {
-  requests: () => [...requests], popovers: () => [...popovers], setAuthor: (author) => setAuthor?.(author), setRepository: (repository) => setRepository?.(repository), setEnabled: (enabled) => setEnabled?.(enabled), rerender: () => rerender?.(), menuOpen: () => markMenuOpen('menu-fixture'), menuClosed: () => markMenuClosed('menu-fixture'), setAvatarDirectory: (directory) => setAvatarDirectory?.(directory), resolveAvatarAuthor: (directory, login) => { const pending = delayedAuthors.findIndex((entry) => entry.directory === `repo-${directory.slice(1)}`); if (pending < 0) throw new Error(`No author request for ${directory}`); delayedAuthors.splice(pending, 1)[0]!.resolve(login); },
+  requests: () => [...requests], popovers: () => [...popovers], setAuthor: (author) => setAuthor?.(author), setRepository: (repository) => setRepository?.(repository), setEnabled: (enabled) => setEnabled?.(enabled), rerender: () => rerender?.(), menuOpen: () => markMenuOpen('menu-fixture'), menuClosed: () => markMenuClosed('menu-fixture'), setAvatarDirectory: (directory) => setAvatarDirectory?.(directory), resolveAvatarAuthor: (directory, login) => { const pending = delayedAuthors.findIndex((entry) => entry.directory === `repo-${directory.slice(1)}`); if (pending < 0) throw new Error(`No author request for ${directory}`); delayedAuthors.splice(pending, 1)[0]!.resolve(login); }, storageCounts: () => ({ reads: storageReads, writes: storageWrites }), storedProfiles: () => Object.keys(sessionStorage).filter((key) => key.startsWith('commit-hover:author-profile:')).map((key) => JSON.parse(sessionStorage.getItem(key)!)), clearStorage: () => { for (const key of Object.keys(sessionStorage)) if (key.startsWith('commit-hover:')) sessionStorage.removeItem(key); storageReads = 0; storageWrites = 0; },
 };
 
 const avatarScenario = new URL(window.location.href).searchParams.has('scenario');

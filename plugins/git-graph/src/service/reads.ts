@@ -196,7 +196,7 @@ export async function readRepository(context: ServiceContext, repository: Reposi
   if (request.read === 'commit-summary') return readCommitSummary(context, repository, request.commit);
   if (request.read === 'commit-author') {
     const commit = await verifyCommitish(context, repository, request.commit);
-    return { read: 'commit-author', author: await (context.readCommitAuthor?.(repository, commit) ?? null) };
+    return { read: 'commit-author', ...(await (context.readCommitAuthor?.(repository, commit) ?? Promise.resolve({ resolution: 'unavailable' as const, author: null }))) };
   }
   if (request.read === 'merge-base') {
     await Promise.all(request.refs.map((ref) => verifyCommitish(context, repository, ref)));

@@ -13,7 +13,7 @@ try {
   const page = await browser.newPage();
   await page.route('https://avatars.githubusercontent.com/**', async (route) => {
     const pathname = new URL(route.request().url()).pathname;
-    if (pathname === '/u/1') await route.fulfill({ status: 200, contentType: 'image/png', body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M/wHwAF/gL+9+1hWQAAAABJRU5ErkJggg==', 'base64') });
+    if (pathname === '/u/1') await route.fulfill({ status: 200, contentType: 'image/png', headers: { 'access-control-allow-origin': '*' }, body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M/wHwAF/gL+9+1hWQAAAABJRU5ErkJggg==', 'base64') });
     else await route.fulfill({ status: 404, body: 'not found' });
   });
   const browserEvents: string[] = [];
@@ -104,10 +104,21 @@ try {
    await phase('navigate valid avatar fixture', () => page.goto(`${server.url}?scenario=avatar-valid`));
    await phase('wait for author lookup despite preloaded summary', () => page.waitForFunction(() => window.commitHover.requests().some((request) => request.operation === 'read' && request.read === 'commit-author')));
    await phase('wait for loaded avatar', () => page.locator('[data-git-commit-hover-avatar] img').waitFor());
-   expect(await page.locator('[data-git-commit-hover-avatar] img').evaluate((image) => (image as HTMLImageElement).naturalWidth)).toBeGreaterThan(0);
+    expect(await page.locator('[data-git-commit-hover-avatar] img').evaluate((image) => (image as HTMLImageElement).naturalWidth)).toBeGreaterThan(0);
    expect(await page.locator('.git-commit-hover-login').textContent()).toBe('@octocat');
    expect(await page.locator('.git-commit-hover-email').count()).toBe(0);
-    expect(await page.locator('[role="alert"]').count()).toBe(0);
+     expect(await page.locator('[role="alert"]').count()).toBe(0);
+     expect(await page.locator('[data-git-commit-hover-avatar] img').getAttribute('src')).toMatch(/^data:image\/png;base64,/);
+     expect(await page.evaluate(() => window.commitHover.storedProfiles()[0])).toMatchObject({ fetchedAt: expect.any(Number) });
+     expect(await page.evaluate(() => (window.commitHover.storedProfiles()[0] as { fetchedAt: number }).fetchedAt)).toBeLessThan(Date.now() - 50 * 60 * 1_000);
+    await phase('reload cached avatar fixture', () => page.reload());
+    await phase('wait for cached author profile', () => page.waitForFunction(() => document.querySelector('.git-commit-hover-login')?.textContent === '@octocat'));
+     expect(await page.evaluate(() => window.commitHover.requests().filter((request) => request.operation === 'read' && request.read === 'commit-author').length)).toBe(0);
+     expect(await page.locator('[data-git-commit-hover-avatar] img').getAttribute('src')).toMatch(/^data:image\/png;base64,/);
+     await phase('navigate cached profile with unavailable repository', () => page.goto(`${server.url}?scenario=repo-open-failure`));
+     await phase('wait for cached profile despite unavailable repository', () => page.waitForFunction(() => document.querySelector('.git-commit-hover-login')?.textContent === '@octocat'));
+     expect(await page.evaluate(() => window.commitHover.requests().filter((request) => request.operation === 'read' && request.read === 'commit-author').length)).toBe(0);
+     expect(await page.locator('[data-git-commit-hover-avatar] img').getAttribute('src')).toMatch(/^data:image\/png;base64,/);
     // The host frame already draws the popover border; the card must not add an inset second one.
     const edges = await page.locator('[data-git-graph-commit-hover]').evaluate((card) => {
       const style = getComputedStyle(card);
@@ -119,22 +130,26 @@ try {
     expect(await page.locator('[data-git-commit-hover-avatar] img').count()).toBe(0);
     expect(await page.locator('[data-git-commit-hover-login]').textContent()).toBe('@octocat');
 
-   await phase('navigate failed avatar fixture', () => page.goto(`${server.url}?scenario=avatar-failure`));
+    await page.evaluate(() => window.commitHover.clearStorage());
+    await phase('navigate failed avatar fixture', () => page.goto(`${server.url}?scenario=avatar-failure`));
    await phase('keep initials after image failure', () => page.waitForFunction(() => document.querySelector('.git-commit-hover-login')?.textContent === '@broken'));
    expect(await page.locator('[data-git-commit-hover-avatar] img').count()).toBe(0);
    expect(await page.locator('[data-git-commit-hover-avatar]').textContent()).toBe('A');
 
-   await phase('navigate unavailable avatar fixture', () => page.goto(`${server.url}?scenario=avatar-error`));
+    await page.evaluate(() => window.commitHover.clearStorage());
+    await phase('navigate unavailable avatar fixture', () => page.goto(`${server.url}?scenario=avatar-error`));
    await phase('keep initials after service failure', () => page.locator('[data-git-commit-hover-avatar]').waitFor());
    expect(await page.locator('[data-git-commit-hover-login]').count()).toBe(0);
    expect(await page.locator('[role="alert"]').count()).toBe(0);
 
-   await phase('navigate unsafe avatar fixture', () => page.goto(`${server.url}?scenario=avatar-unsafe`));
+    await page.evaluate(() => window.commitHover.clearStorage());
+    await phase('navigate unsafe avatar fixture', () => page.goto(`${server.url}?scenario=avatar-unsafe`));
    await phase('wait for unsafe login', () => page.waitForFunction(() => document.querySelector('.git-commit-hover-login')?.textContent === '@unsafe'));
    expect(await page.locator('[data-git-commit-hover-avatar] img').count()).toBe(0);
    expect(avatarRequests.filter((url) => url.includes('evil.test'))).toEqual([]);
 
-   await phase('navigate stale avatar fixture', () => page.goto(`${server.url}?scenario=avatar-stale`));
+    await page.evaluate(() => window.commitHover.clearStorage());
+    await phase('navigate stale avatar fixture', () => page.goto(`${server.url}?scenario=avatar-stale`));
    await phase('wait for first author request', () => page.waitForFunction(() => window.commitHover.requests().filter((request) => request.operation === 'read' && request.read === 'commit-author').length === 1));
    await page.evaluate(() => window.commitHover.setAvatarDirectory('/avatar-b'));
    await phase('wait for B author request', () => page.waitForFunction(() => window.commitHover.requests().filter((request) => request.operation === 'read' && request.read === 'commit-author').length === 2));

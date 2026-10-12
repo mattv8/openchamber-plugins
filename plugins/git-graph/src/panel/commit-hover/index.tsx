@@ -3,20 +3,20 @@ import type { HostClient } from '@openchamber/sdk';
 import { mountPopoverAnchor } from '@openchamber/sdk/ui';
 import type { GitGraphServiceClient, GraphCommit } from '../domain/index.js';
 import type { CommitHoverPayload } from '../popover/payload.js';
-import type { GitGraphResponse } from '../../shared/protocol.js';
+import { CommitAuthorLookupSchema, type CommitAuthor } from '../../shared/protocol.js';
 import type { GitHistoryGraphRef } from '../original/gitGraph.js';
 import { GitRefIcon } from '../original/GitRefIcon.js';
 import { buildGitRefBadgePresentation } from '../original/gitRefBadges.js';
 import { defaultT } from '../i18n/index.js';
 import { isMenuOpen } from '../popover/menu-state.js';
 import { createCommitSummaryCache } from './cache.js';
+import { createAuthorProfileCache, type AuthorProfileEntry } from './author-profile-cache.js';
 import { buildHoverPayload, commitBody, initials, relativeTime } from './model.js';
 import { githubRepositoryUrl } from './remote.js';
 
 export type HoverRepository = { directory: string; repositoryId: string; snapshot: string };
 
 type Summary = NonNullable<CommitHoverPayload['summary']>;
-type CommitAuthor = NonNullable<Extract<Extract<GitGraphResponse, { ok: true; operation: 'read' }>['data'], { read: 'commit-author' }>['author']>;
 type HoverState = { host: HostClient; service: GitGraphServiceClient; repository: HoverRepository; cache: ReturnType<typeof createCommitSummaryCache<Summary>>; remoteUrl: string | null };
 const HoverContext = createContext<HoverState | null>(null);
 
@@ -99,23 +99,14 @@ const canonicalAvatarUrl = (value: string): boolean => {
   } catch { return false; }
 };
 
-function CommitHoverAvatar(props: { author: string; github: CommitAuthor | null }) {
-  const [loadedUrl, setLoadedUrl] = useState<string | null>(null);
+const cachedAvatarDataUrl = (value: string | null): value is string => Boolean(value && /^data:image\/(?:png|jpeg|webp|gif);base64,[A-Za-z0-9+/]+={0,2}$/.test(value));
+
+function CommitHoverAvatar(props: { author: string; github: CommitAuthor | null; avatarData: string | null; avatarFetchSettled: boolean }) {
+  const [imageFailed, setImageFailed] = useState(false);
   const avatarUrl = props.github?.avatarUrl ?? null;
-  useEffect(() => {
-    setLoadedUrl(null);
-    if (!avatarUrl || !canonicalAvatarUrl(avatarUrl)) return;
-    let active = true;
-    const image = new Image();
-    const cleanup = () => { window.clearTimeout(timeout); image.onload = null; image.onerror = null; };
-    const timeout = window.setTimeout(() => { cleanup(); }, 5_000);
-    image.onload = () => { cleanup(); if (active) setLoadedUrl(avatarUrl); };
-    image.onerror = cleanup;
-    image.referrerPolicy = 'no-referrer';
-    image.src = avatarUrl;
-    return () => { active = false; cleanup(); };
-  }, [avatarUrl]);
-  return <span className="git-commit-hover-avatar" data-git-commit-hover-avatar>{loadedUrl === avatarUrl && avatarUrl ? <img className="git-commit-hover-avatar-img" src={avatarUrl} alt="" aria-hidden="true" referrerPolicy="no-referrer" onError={() => setLoadedUrl(null)} /> : <span className="git-commit-hover-initials" aria-hidden="true">{initials(props.author)}</span>}</span>;
+  const imageUrl = cachedAvatarDataUrl(props.avatarData) ? props.avatarData : props.avatarFetchSettled && avatarUrl && canonicalAvatarUrl(avatarUrl) ? avatarUrl : null;
+  useEffect(() => setImageFailed(false), [imageUrl]);
+  return <span className="git-commit-hover-avatar" data-git-commit-hover-avatar>{imageUrl && !imageFailed ? <img className="git-commit-hover-avatar-img" src={imageUrl} alt="" aria-hidden="true" referrerPolicy="no-referrer" onError={() => setImageFailed(true)} /> : <span className="git-commit-hover-initials" aria-hidden="true">{initials(props.author)}</span>}</span>;
 }
 
 function CommitHoverCardContent(props: { host: HostClient; service: GitGraphServiceClient; directory: string; payload: CommitHoverPayload }): ReactNode {
@@ -124,17 +115,47 @@ function CommitHoverCardContent(props: { host: HostClient; service: GitGraphServ
   const [loading, setLoading] = useState(payload.summary === null);
   const [error, setError] = useState<string | null>(null);
   const [githubAuthor, setGithubAuthor] = useState<CommitAuthor | null>(null);
+  const [authorProfile, setAuthorProfile] = useState<AuthorProfileEntry | null>(null);
+  const [avatarFetchSettled, setAvatarFetchSettled] = useState(false);
   const [copied, setCopied] = useState(false);
   const card = useRef<HTMLElement | null>(null);
   useEffect(() => {
     let active = true;
+    const controller = new AbortController();
+    const profileCache = createAuthorProfileCache({ storage: host.storage });
+    const profileRead = profileCache.read(payload.authorEmail);
+    const showProfile = async (profile: AuthorProfileEntry) => {
+      if (!active) return;
+      setAuthorProfile(profile);
+      setGithubAuthor(profile.resolution === 'linked' ? { login: profile.login!, avatarUrl: profile.avatarUrl! } : null);
+      const withAvatar = await profileCache.fillAvatar(profile, controller.signal);
+      if (active) {
+        setAuthorProfile(withAvatar);
+        setAvatarFetchSettled(true);
+      }
+    };
+    void profileRead.then((profile) => {
+      if (profile) return showProfile(profile);
+    }).catch(() => undefined);
     void (async () => {
       try {
         const opened = await service.request({ version: 1, requestId: `hover-open:${crypto.randomUUID()}`, repositoryId: 'popover', operation: 'repo/open', directory });
         if (!opened.ok || opened.operation !== 'repo/open') throw new Error('open');
-        void service.request({ version: 1, requestId: `hover-author:${crypto.randomUUID()}`, operation: 'read', read: 'commit-author', repositoryId: opened.data.id, snapshot: opened.data.snapshot, commit: payload.commit }).then((response) => {
-          if (active && response.ok && response.operation === 'read' && response.data.read === 'commit-author') setGithubAuthor(response.data.author);
-        }).catch(() => undefined);
+        void (async () => {
+          const cached = await profileRead;
+          if (!active || cached) return;
+          const response = await service.request({ version: 1, requestId: `hover-author:${crypto.randomUUID()}`, operation: 'read', read: 'commit-author', repositoryId: opened.data.id, snapshot: opened.data.snapshot, commit: payload.commit });
+          if (!active || !response.ok || response.operation !== 'read' || response.data.read !== 'commit-author') return;
+          if (response.data.author) setGithubAuthor(response.data.author);
+          const parsed = CommitAuthorLookupSchema.safeParse(response.data);
+          if (!parsed.success) {
+            setAvatarFetchSettled(true);
+            return;
+          }
+          const profile = await profileCache.write(payload.authorEmail, parsed.data, controller.signal);
+          if (profile) await showProfile(profile);
+          else if (active) setAvatarFetchSettled(true);
+        })().catch(() => { if (active) setAvatarFetchSettled(true); });
         if (payload.summary) return;
         const response = await service.request({ version: 1, requestId: `hover-card:${crypto.randomUUID()}`, operation: 'read', read: 'commit-summary', repositoryId: opened.data.id, snapshot: opened.data.snapshot, commit: payload.commit });
         const next = summaryFrom(response);
@@ -143,7 +164,7 @@ function CommitHoverCardContent(props: { host: HostClient; service: GitGraphServ
       } catch (cause) { if (active && !payload.summary) setError(cause instanceof Error && cause.message === 'not-found' ? defaultT('hover.notFound') : defaultT('hover.serviceError')); }
       finally { if (active && !payload.summary) setLoading(false); }
     })();
-    return () => { active = false; };
+    return () => { active = false; controller.abort(); };
   }, [directory, payload, service]);
   useEffect(() => {
     if (!card.current || !globalThis.ResizeObserver) return;
@@ -156,7 +177,7 @@ function CommitHoverCardContent(props: { host: HostClient; service: GitGraphServ
   const badge = (ref: GitHistoryGraphRef) => <span key={ref.id} data-git-commit-hover-ref={ref.id} className={`git-ref-badge ${ref.color ? 'git-ref-badge-colored' : ''} ${ref.kind === 'tag' ? 'git-ref-badge-tag' : ''}`} style={ref.color ? { backgroundColor: ref.color } : undefined}><GitRefIcon name={ref.kind === 'head' ? 'target' : ref.kind === 'remote' ? 'cloud' : ref.kind === 'tag' ? 'git-commit' : 'git-branch'} className="git-ref-icon" /><span className="git-ref-badge-name">{ref.name}</span></span>;
   const stats = summary?.statistics;
   return <article ref={card} className="git-commit-hover" data-git-graph-commit-hover={payload.commit}>
-    <div className="git-commit-hover-author"><CommitHoverAvatar author={payload.author} github={githubAuthor} /><strong data-git-commit-hover-author={payload.commit}>{payload.author}</strong>{githubAuthor ? <span className="git-commit-hover-login" data-git-commit-hover-login>@{githubAuthor.login}</span> : <span className="git-commit-hover-email">{payload.authorEmail}</span>}<span className="git-commit-hover-meta">{relativeTime(payload.timestamp, document.documentElement.lang || 'en')} · {new Date(payload.timestamp).toLocaleString(document.documentElement.lang || 'en', { dateStyle: 'medium', timeStyle: 'short' })}</span></div>
+    <div className="git-commit-hover-author"><CommitHoverAvatar author={payload.author} github={githubAuthor} avatarData={authorProfile?.avatarData ?? null} avatarFetchSettled={avatarFetchSettled} /><strong data-git-commit-hover-author={payload.commit}>{payload.author}</strong>{githubAuthor ? <span className="git-commit-hover-login" data-git-commit-hover-login>@{githubAuthor.login}</span> : <span className="git-commit-hover-email">{payload.authorEmail}</span>}<span className="git-commit-hover-meta">{relativeTime(payload.timestamp, document.documentElement.lang || 'en')} · {new Date(payload.timestamp).toLocaleString(document.documentElement.lang || 'en', { dateStyle: 'medium', timeStyle: 'short' })}</span></div>
     <div><strong data-git-commit-hover-subject={payload.commit}>{payload.subject}</strong>{commitBody(payload.subject, message) && <p className="git-commit-hover-body">{commitBody(payload.subject, message)}</p>}</div>
     <div className="git-commit-hover-stats">{loading && !stats ? defaultT('hover.statisticsPending') : error && !stats ? error : <>{defaultT(stats?.files === 1 ? 'hover.fileCount' : 'hover.fileCountPlural', { count: stats?.files ?? 0 })}{stats?.insertions ? <span className="git-commit-hover-add"> +{stats.insertions}</span> : null}{stats?.deletions ? <span className="git-commit-hover-remove"> −{stats.deletions}</span> : null}</>}</div>
     {presentation.primary && <div className="git-commit-hover-refs" data-commit-popover-refs={payload.commit}>{badge(presentation.primary.ref)}{presentation.secondary.map((group) => badge(group.refs[0]))}</div>}

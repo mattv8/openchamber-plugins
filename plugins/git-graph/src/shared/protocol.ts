@@ -30,6 +30,7 @@ const StatusSchema = z.object({
 const HistoryItem = z.object({ id: FullCommit, parentIds: z.array(FullCommit).max(32), subject: z.string().max(8192), message: z.string().max(65536), author: z.string().max(512), authorEmail: z.string().max(512), timestamp: z.string().datetime({ offset: true }), statistics: z.object({ files: z.number().int().nonnegative(), insertions: z.number().int().nonnegative(), deletions: z.number().int().nonnegative() }), references: z.array(RefInfo).max(128) });
 const DiffChunk = z.object({ snapshot: Snapshot, chunkId: Id, offset: z.number().int().nonnegative(), totalBytes: z.number().int().nonnegative(), complete: z.boolean(), text: z.string().max(240000), isBinary: z.boolean(), truncated: z.boolean() });
 const Hunk = z.object({ id: Id, oldStart: z.number().int().nonnegative(), oldLines: z.number().int().nonnegative(), newStart: z.number().int().nonnegative(), newLines: z.number().int().nonnegative() });
+const FetchedAt = z.number().int().nonnegative();
 export const CommitAuthorSchema = z.object({
   login: z.string().min(1).max(45).regex(/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?(?:\[bot\])?$/),
   avatarUrl: z.string().max(512).url().refine((value) => {
@@ -39,6 +40,18 @@ export const CommitAuthorSchema = z.object({
     } catch { return false; }
   }, 'invalid canonical GitHub avatar URL'),
 }).strict();
+const CommitAuthorLookupVariants = [
+  z.object({ resolution: z.literal('linked'), author: CommitAuthorSchema, fetchedAt: FetchedAt.optional() }),
+  z.object({ resolution: z.literal('unlinked'), author: z.null(), fetchedAt: FetchedAt.optional() }),
+  z.object({ resolution: z.literal('unavailable'), author: z.null() }),
+] as const;
+export const CommitAuthorLookupSchema = z.discriminatedUnion('resolution', CommitAuthorLookupVariants);
+const CommitAuthorReadSchema = z.object({
+  read: z.literal('commit-author'),
+  resolution: z.enum(['linked', 'unlinked', 'unavailable']),
+  author: CommitAuthorSchema.nullable(),
+  fetchedAt: FetchedAt.optional(),
+}).refine(({ resolution, author, fetchedAt }) => (resolution === 'linked') === (author !== null) && (resolution !== 'unavailable' || fetchedAt === undefined), 'commit author resolution must match author');
 
 export const ReadOperationSchema = z.enum(['status', 'history', 'refs', 'remotes', 'merge-base', 'resolve-commit', 'commit-summary', 'commit-author', 'commit-files', 'commit-file-preview', 'working-tree', 'working-tree-diff', 'hunks', 'range-diff', 'range-files']);
 const ReadRequestSchema = z.discriminatedUnion('read', [
@@ -87,8 +100,7 @@ export const ReadDataSchema = z.discriminatedUnion('read', [
   z.object({ read: z.literal('remotes'), remotes: z.array(z.object({ name: z.string().min(1).max(512), fetchUrl: z.string().max(2048).nullable(), pushUrl: z.string().max(2048).nullable() })).max(128) }),
   z.object({ read: z.literal('merge-base'), mergeBase: FullCommit.nullable() }),
   z.object({ read: z.literal('resolve-commit'), commit: FullCommit.nullable(), ambiguous: z.boolean() }),
-  /** GitHub account for a commit's author, or null when unknown, not on GitHub, or the lookup is unavailable. */
-  z.object({ read: z.literal('commit-author'), author: CommitAuthorSchema.nullable() }),
+  CommitAuthorReadSchema,
   z.object({ read: z.literal('commit-summary'), commit: z.object({ id: FullCommit, parentIds: z.array(FullCommit).max(32), subject: z.string().max(8192), message: z.string().max(65536), author: z.string().max(512), authorEmail: z.string().max(512), timestamp: z.string().datetime({ offset: true }), statistics: z.object({ files: z.number().int().nonnegative(), insertions: z.number().int().nonnegative(), deletions: z.number().int().nonnegative() }) }), messageTruncated: z.boolean() }),
   z.object({ read: z.literal('commit-files'), files: z.array(FileChange).max(5000) }),
   z.object({ read: z.literal('commit-file-preview'), chunk: DiffChunk, originalAvailable: z.boolean(), modifiedAvailable: z.boolean() }),
@@ -116,3 +128,4 @@ export type GitGraphResponse = z.infer<typeof GitGraphResponseSchema>;
 export type GitGraphMutation = z.infer<typeof MutationSchema>;
 export type GitGraphReadOperation = z.infer<typeof ReadOperationSchema>;
 export type CommitAuthor = z.infer<typeof CommitAuthorSchema>;
+export type CommitAuthorLookup = z.infer<typeof CommitAuthorLookupSchema>;
