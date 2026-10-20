@@ -1,8 +1,8 @@
-body[data-surface="popover"] { margin: 0; background: transparent; color: var(--oc-elevated-fg, CanvasText); font: 12px/1.35 var(--oc-font, system-ui, sans-serif); }
+html[data-oc-surface="popover"] body { margin: 0; background: transparent; color: var(--oc-elevated-fg, CanvasText); font: 12px/1.35 var(--oc-font, system-ui, sans-serif); }
 /* The host frame draws the popover border and never scrolls a self-sized card, so drop the workspace card's border and the reserved scrollbar gutter. */
-:root:has(> body[data-surface="popover"]) { scrollbar-gutter: auto; }
+html[data-oc-surface="popover"] { scrollbar-gutter: auto; }
 .git-commit-hover { box-sizing: border-box; padding: 10px; background: transparent; }
-body[data-surface="popover"] .git-commit-hover { border: 0; max-width: none; }
+html[data-oc-surface="popover"] .git-commit-hover { border: 0; max-width: none; }
 .git-commit-hover-author, .git-commit-hover-actions, .git-commit-hover-refs, .git-commit-hover-stats { display: flex; align-items: center; gap: .4rem; flex-wrap: wrap; margin-bottom: .45rem; }
 .git-commit-hover-initials { display: grid; width: 20px; height: 20px; place-items: center; border-radius: 4px; background: var(--oc-selection, Highlight); color: var(--oc-selection-fg, HighlightText); font-size: 10px; font-weight: 600; }
 .git-commit-hover-avatar { display: block; flex: 0 0 20px; width: 20px; height: 20px; }

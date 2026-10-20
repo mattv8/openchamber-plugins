@@ -1,6 +1,7 @@
 import { createRoot } from 'react-dom/client';
 import { useState } from 'react';
-import { GUEST_SCROLLBAR_CSS } from '@openchamber/sdk';
+import { GUEST_SCROLLBAR_CSS, type HostTheme } from '@openchamber/sdk';
+import { applyHostReady } from '@openchamber/sdk/ui';
 import { createFixtureHost } from './host-fixture.js';
 import '../../src/panel/styles/git-graph.css';
 import '../../src/panel/styles/menu.css';
@@ -15,6 +16,12 @@ import { defaultT } from '../../src/panel/i18n/index.js';
 import { markMenuClosed, markMenuOpen } from '../../src/panel/popover/menu-state.js';
 
 const sha = 'a'.repeat(40);
+const popoverTheme = {
+  mode: 'dark',
+  tokens: {
+    background: '#111', elevated: '#222', foreground: '#eee', muted: '#aaa', subtle: '#555', border: '#888', hover: '#333', selection: '#444', focus: '#fff', primary: '#09f', mutedSurface: '#181818', elevatedForeground: '#fff', active: '#555', selectionForeground: '#fff', primaryForeground: '#fff', primaryText: '#09f', successText: '#0a0', warningText: '#a70', errorText: '#a00', infoText: '#09f', success: '#030', warning: '#320', error: '#300', info: '#003', font: 'system-ui', mono: 'monospace', radius: '4px',
+  },
+} satisfies HostTheme;
 const requests: GitGraphRequest[] = [];
 const popovers: unknown[] = [];
 let setAuthor: ((author: string) => void) | null = null;
@@ -123,8 +130,9 @@ window.commitHover = {
 
 const avatarScenario = new URL(window.location.href).searchParams.has('scenario');
 if (avatarScenario) {
-  // Mirror a host-served popover document: surface marker plus the host's injected scrollbar rules.
-  document.body.dataset.surface = 'popover';
+  // Mirror the status entry reused by a host-served popover document.
+  document.body.dataset.surface = 'status';
+  applyHostReady({ surface: 'popover', theme: popoverTheme }, document.documentElement);
   const hostStyle = document.createElement('style');
   hostStyle.textContent = GUEST_SCROLLBAR_CSS;
   document.head.prepend(hostStyle);

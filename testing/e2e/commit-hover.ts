@@ -122,10 +122,26 @@ try {
     // The host frame already draws the popover border; the card must not add an inset second one.
     const edges = await page.locator('[data-git-graph-commit-hover]').evaluate((card) => {
       const style = getComputedStyle(card);
-      return { border: [style.borderTopWidth, style.borderRightWidth, style.borderBottomWidth, style.borderLeftWidth], cardWidth: card.getBoundingClientRect().width, viewport: document.documentElement.clientWidth };
+      const rootStyle = getComputedStyle(document.documentElement);
+      return {
+        bodyMargin: getComputedStyle(document.body).margin,
+        border: [style.borderTopWidth, style.borderRightWidth, style.borderBottomWidth, style.borderLeftWidth],
+        cardWidth: card.getBoundingClientRect().width,
+        gutter: rootStyle.scrollbarGutter,
+        viewport: document.documentElement.clientWidth,
+      };
     });
+    expect(edges.bodyMargin).toBe('0px');
     expect(edges.border).toEqual(['0px', '0px', '0px', '0px']);
     expect(edges.cardWidth).toBe(edges.viewport);
+    expect(edges.gutter).toBe('auto');
+    const panelBorder = await page.locator('[data-git-graph-commit-hover]').evaluate((card) => {
+      document.documentElement.dataset.ocSurface = 'status';
+      const border = getComputedStyle(card).borderTopWidth;
+      document.documentElement.dataset.ocSurface = 'popover';
+      return border;
+    });
+    expect(panelBorder).toBe('1px');
     await page.locator('[data-git-commit-hover-avatar] img').dispatchEvent('error');
     expect(await page.locator('[data-git-commit-hover-avatar] img').count()).toBe(0);
     expect(await page.locator('[data-git-commit-hover-login]').textContent()).toBe('@octocat');

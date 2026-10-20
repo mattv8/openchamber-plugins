@@ -7,7 +7,7 @@ export type ManagedGitRunner = GitRunner & { close: () => void };
 
 function gitEnvironment(): NodeJS.ProcessEnv {
   const inherited = process.env;
-  return { PATH: inherited.PATH, HOME: inherited.HOME, USERPROFILE: inherited.USERPROFILE, SYSTEMROOT: inherited.SYSTEMROOT, TEMP: inherited.TEMP, TMP: inherited.TMP, LANG: inherited.LANG, LC_ALL: inherited.LC_ALL, SSH_AUTH_SOCK: inherited.SSH_AUTH_SOCK, GIT_TERMINAL_PROMPT: '0', GIT_LITERAL_PATHSPECS: '1' };
+  return { PATH: inherited.PATH, HOME: inherited.HOME, USERPROFILE: inherited.USERPROFILE, SYSTEMROOT: inherited.SYSTEMROOT, TEMP: inherited.TEMP, TMP: inherited.TMP, LANG: inherited.LANG, LC_ALL: inherited.LC_ALL, SSH_AUTH_SOCK: inherited.SSH_AUTH_SOCK, GIT_TERMINAL_PROMPT: '0', GIT_LITERAL_PATHSPECS: '1', GIT_OPTIONAL_LOCKS: '0' };
 }
 
 function stop(child: ChildProcess): void {
