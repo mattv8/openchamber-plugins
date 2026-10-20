@@ -30,6 +30,7 @@ let setEnabled: ((enabled: boolean) => void) | null = null;
 let rerender: (() => void) | null = null;
 let setAvatarDirectory: ((directory: '/avatar-a' | '/avatar-b') => void) | null = null;
 const delayedAuthors: Array<{ directory: string; resolve: (login: string) => void }> = [];
+const openedUrls: string[] = [];
 let storageReads = 0;
 let storageWrites = 0;
 
@@ -56,6 +57,7 @@ declare global {
       storageCounts(): { reads: number; writes: number };
       storedProfiles(): unknown[];
       clearStorage(): void;
+      openedUrls(): string[];
     };
   }
 }
@@ -66,6 +68,7 @@ const host = createFixtureHost({
   setPopoverAnchorActive: async () => undefined,
   onPopoverClosed: () => () => undefined,
   setHeight: async () => undefined,
+  openUrl: async (url: string) => { openedUrls.push(url); },
   storage,
 });
 
@@ -121,11 +124,12 @@ const avatarPayload = { kind: 'hover' as const, commit: sha, subject: 'Subject',
 function AvatarFixture() {
   const [directory, updateDirectory] = useState<'/avatar-a' | '/avatar-b'>('/avatar-a');
   setAvatarDirectory = updateDirectory;
-  return <CommitHoverCard host={host} service={service} directory={directory} payload={avatarPayload} />;
+  // Every avatar scenario renders the GitHub action; no assertion depends on its absence.
+  return <CommitHoverCard host={host} service={service} directory={directory} payload={{ ...avatarPayload, remoteUrl: `https://github.com/example/repo/commit/${sha}` }} />;
 }
 
 window.commitHover = {
-  requests: () => [...requests], popovers: () => [...popovers], setAuthor: (author) => setAuthor?.(author), setRepository: (repository) => setRepository?.(repository), setEnabled: (enabled) => setEnabled?.(enabled), rerender: () => rerender?.(), menuOpen: () => markMenuOpen('menu-fixture'), menuClosed: () => markMenuClosed('menu-fixture'), setAvatarDirectory: (directory) => setAvatarDirectory?.(directory), resolveAvatarAuthor: (directory, login) => { const pending = delayedAuthors.findIndex((entry) => entry.directory === `repo-${directory.slice(1)}`); if (pending < 0) throw new Error(`No author request for ${directory}`); delayedAuthors.splice(pending, 1)[0]!.resolve(login); }, storageCounts: () => ({ reads: storageReads, writes: storageWrites }), storedProfiles: () => Object.keys(sessionStorage).filter((key) => key.startsWith('commit-hover:author-profile:')).map((key) => JSON.parse(sessionStorage.getItem(key)!)), clearStorage: () => { for (const key of Object.keys(sessionStorage)) if (key.startsWith('commit-hover:')) sessionStorage.removeItem(key); storageReads = 0; storageWrites = 0; },
+  requests: () => [...requests], popovers: () => [...popovers], setAuthor: (author) => setAuthor?.(author), setRepository: (repository) => setRepository?.(repository), setEnabled: (enabled) => setEnabled?.(enabled), rerender: () => rerender?.(), menuOpen: () => markMenuOpen('menu-fixture'), menuClosed: () => markMenuClosed('menu-fixture'), setAvatarDirectory: (directory) => setAvatarDirectory?.(directory), resolveAvatarAuthor: (directory, login) => { const pending = delayedAuthors.findIndex((entry) => entry.directory === `repo-${directory.slice(1)}`); if (pending < 0) throw new Error(`No author request for ${directory}`); delayedAuthors.splice(pending, 1)[0]!.resolve(login); }, openedUrls: () => [...openedUrls], storageCounts: () => ({ reads: storageReads, writes: storageWrites }), storedProfiles: () => Object.keys(sessionStorage).filter((key) => key.startsWith('commit-hover:author-profile:')).map((key) => JSON.parse(sessionStorage.getItem(key)!)), clearStorage: () => { for (const key of Object.keys(sessionStorage)) if (key.startsWith('commit-hover:')) sessionStorage.removeItem(key); storageReads = 0; storageWrites = 0; },
 };
 
 const avatarScenario = new URL(window.location.href).searchParams.has('scenario');

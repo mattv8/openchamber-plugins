@@ -142,6 +142,55 @@ try {
       return border;
     });
     expect(panelBorder).toBe('1px');
+    // Action buttons are pills on one row at the 340px popover width; the hash sits on its own line above them.
+    await page.setViewportSize({ width: 340, height: 400 });
+    await page.mouse.move(0, 0);
+    const actionButtons = page.locator('.git-commit-hover-actions button');
+    expect(await actionButtons.count()).toBe(3);
+    const pills = await actionButtons.evaluateAll((buttons) => {
+      const card = document.querySelector('[data-git-graph-commit-hover]')!;
+      const contentRight = card.getBoundingClientRect().right - parseFloat(getComputedStyle(card).paddingRight);
+      const bodyFont = getComputedStyle(document.body).fontFamily;
+      return buttons.map((button) => {
+        const style = getComputedStyle(button);
+        return { radius: parseFloat(style.borderTopLeftRadius), borderTop: style.borderTopWidth, height: style.height, cursor: style.cursor, fontFamily: style.fontFamily, bodyFont, top: (button as HTMLElement).offsetTop, withinCard: button.getBoundingClientRect().right <= contentRight };
+      });
+    });
+    for (const pill of pills) {
+      expect(pill.radius).toBeGreaterThanOrEqual(12);
+      expect(pill.borderTop).toBe('0px');
+      expect(pill.height).toBe('24px');
+      expect(pill.cursor).toBe('pointer');
+      expect(pill.fontFamily).toBe(pill.bodyFont);
+      expect(pill.withinCard).toBe(true);
+    }
+    expect(new Set(pills.map((pill) => pill.top)).size).toBe(1);
+    const codeTop = await page.locator('.git-commit-hover-actions code').evaluate((code) => (code as HTMLElement).offsetTop);
+    expect(codeTop).toBeLessThan(pills[0]!.top);
+    const firstAction = actionButtons.first();
+    const fillOf = (button: Element) => getComputedStyle(button).backgroundColor;
+    // Wait for background transitions to finish before reading a fill.
+    const settle = () => page.waitForFunction(() => document.querySelector('.git-commit-hover-actions button')!.getAnimations().length === 0);
+    const restingFill = await firstAction.evaluate(fillOf);
+    const restingBox = await firstAction.boundingBox();
+    await firstAction.hover();
+    await settle();
+    const hoverFill = await firstAction.evaluate(fillOf);
+    expect(hoverFill).not.toBe(restingFill);
+    expect(await firstAction.boundingBox()).toEqual(restingBox);
+    await page.mouse.move(0, 0);
+    await settle();
+    // Keyboard focus (Tab, no click, so no openUrl) gets the hover fill and no ring.
+    await page.keyboard.press('Tab');
+    await settle();
+    const focus = await page.evaluate(() => {
+      const active = document.activeElement;
+      return { isFirstAction: active === document.querySelector('.git-commit-hover-actions button'), focusVisible: active?.matches(':focus-visible') ?? false, outline: active ? getComputedStyle(active).outlineStyle : null };
+    });
+    expect(focus).toEqual({ isFirstAction: true, focusVisible: true, outline: 'none' });
+    expect(await firstAction.evaluate(fillOf)).toBe(hoverFill);
+    expect(await firstAction.evaluate((button) => getComputedStyle(button).backgroundImage)).toBe('none');
+    expect(await page.evaluate(() => window.commitHover.openedUrls())).toEqual([]);
     await page.locator('[data-git-commit-hover-avatar] img').dispatchEvent('error');
     expect(await page.locator('[data-git-commit-hover-avatar] img').count()).toBe(0);
     expect(await page.locator('[data-git-commit-hover-login]').textContent()).toBe('@octocat');

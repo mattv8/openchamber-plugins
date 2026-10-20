@@ -8,7 +8,7 @@
 .gcm [role="menuitem"]:hover, .gcm [role="menuitem"][data-active="true"], .gcm [role="menuitem"]:focus-visible { background: var(--oc-hover, ButtonFace); outline: none; }
 .gcm [role="menuitem"]:disabled, .gcm [role="menuitem"][aria-disabled="true"], .gcm .gcm-btn:disabled, .gcm .gcm-btn[aria-disabled="true"] { opacity: 0.5; pointer-events: none; }
 .gcm .gcm-item--destructive { color: var(--oc-error-text, inherit); }
-.gcm .gcm-item--destructive:hover, .gcm .gcm-item--destructive:focus-visible { background: color-mix(in srgb, var(--oc-error, red) 15%, transparent); }
+.gcm .gcm-item--destructive:hover, .gcm .gcm-item--destructive:focus-visible, .gcm .gcm-item--destructive[data-active="true"] { background: color-mix(in srgb, var(--oc-error, red) 15%, transparent); }
 .gcm .gcm-sep { height: 1px; margin: 4px -4px; background: color-mix(in srgb, var(--oc-border, ButtonBorder) 40%, transparent); }
 .gcm .gcm-group-label { display: block; padding: 4px 8px 2px; color: var(--oc-muted, GrayText); font-size: 0.75rem; font-weight: 500; pointer-events: none; }
 .gcm .gcm-view { display: flex; flex-direction: column; gap: 8px; padding: 8px 4px 4px; }
@@ -18,13 +18,16 @@
 .gcm .gcm-input { display: block; width: 100%; height: 32px; padding: 0 10px; border: 0; border-radius: var(--oc-radius, 8px); background: var(--oc-elevated, Canvas); color: var(--oc-elevated-fg, CanvasText); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--oc-border, ButtonBorder) 60%, transparent); font: inherit; font-size: 0.8125rem; transition: box-shadow 150ms ease-out; }
 .gcm .gcm-input:focus, .gcm .gcm-input:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--oc-focus, Highlight); }
 .gcm .gcm-footer { display: flex; justify-content: flex-end; gap: 6px; padding-top: 4px; }
-.gcm .gcm-btn { display: inline-flex; align-items: center; justify-content: center; height: 28px; padding: 0 10px; border: 1px solid transparent; border-radius: var(--oc-radius, 8px); cursor: pointer; font: inherit; font-size: 0.8125rem; font-weight: 500; transition: background 150ms ease-out; white-space: nowrap; }
-.gcm .gcm-btn[data-variant="secondary"] { border-color: var(--oc-border, ButtonBorder); background: transparent; color: var(--oc-elevated-fg, CanvasText); }
-.gcm .gcm-btn[data-variant="secondary"]:hover { background: var(--oc-hover, ButtonFace); }
+.gcm .gcm-btn { display: inline-flex; align-items: center; justify-content: center; height: 28px; padding: 0 10px; border: 1px solid transparent; border-radius: 999px; cursor: pointer; font: inherit; font-size: 0.8125rem; font-weight: 500; transition: background-color 150ms ease-out, color 150ms ease-out; white-space: nowrap; }
+.gcm .gcm-btn[data-variant="secondary"] { background: color-mix(in srgb, var(--oc-elevated-fg, CanvasText) 6%, transparent); color: var(--oc-elevated-fg, CanvasText); }
+.gcm .gcm-btn[data-variant="secondary"]:hover, .gcm .gcm-btn[data-variant="secondary"]:focus-visible { background: var(--oc-hover, color-mix(in srgb, CanvasText 10%, transparent)); }
+.gcm .gcm-btn[data-variant="secondary"]:active { background: var(--oc-active, var(--oc-hover, color-mix(in srgb, CanvasText 14%, transparent))); }
 .gcm .gcm-btn[data-variant="primary"] { border-color: color-mix(in srgb, var(--oc-primary, ButtonFace) 15%, transparent); background: color-mix(in srgb, var(--oc-primary, ButtonFace) 12%, transparent); color: var(--oc-primary-text, inherit); }
-.gcm .gcm-btn[data-variant="primary"]:hover { background: color-mix(in srgb, var(--oc-primary, ButtonFace) 18%, transparent); }
+.gcm .gcm-btn[data-variant="primary"]:hover, .gcm .gcm-btn[data-variant="primary"]:focus-visible { background: color-mix(in srgb, var(--oc-primary, ButtonFace) 18%, transparent); }
+.gcm .gcm-btn[data-variant="primary"]:active { background: color-mix(in srgb, var(--oc-primary, ButtonFace) 24%, transparent); }
 .gcm .gcm-btn[data-variant="destructive"] { border-color: color-mix(in srgb, var(--oc-error, red) 14%, transparent); background: color-mix(in srgb, var(--oc-error, red) 8%, transparent); color: var(--oc-error-text, inherit); }
-.gcm .gcm-btn[data-variant="destructive"]:hover { background: color-mix(in srgb, var(--oc-error, red) 12%, transparent); }
-.gcm .gcm-btn:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--oc-focus, Highlight); }
+.gcm .gcm-btn[data-variant="destructive"]:hover, .gcm .gcm-btn[data-variant="destructive"]:focus-visible { background: color-mix(in srgb, var(--oc-error, red) 15%, transparent); }
+.gcm .gcm-btn[data-variant="destructive"]:active { background: color-mix(in srgb, var(--oc-error, red) 22%, transparent); }
+.gcm .gcm-btn:focus-visible { outline: none; box-shadow: none; }
 .gcm [data-commit-menu-view="pending"], .gcm [data-commit-menu-view="success"] { padding: 12px 8px; color: var(--oc-muted, GrayText); font-size: 0.8125rem; text-align: center; }
 .gcm [data-commit-menu-view="success"] { color: var(--oc-success-text, CanvasText); }

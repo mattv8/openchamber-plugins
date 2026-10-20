@@ -31,6 +31,30 @@ async function runScenario(scenario: string, test: (page: Page) => Promise<void>
   }
 }
 
+const backgroundOf = (page: Page, selector: string) => page.$eval(selector, (element) => getComputedStyle(element).backgroundColor);
+
+// Reads the fill only after running transitions finish, so a mid-transition value is never compared.
+const settledBackgroundOf = (page: Page, selector: string) =>
+  page.$eval(selector, async (element) => {
+    await Promise.all(element.getAnimations().map((animation) => animation.finished));
+    return getComputedStyle(element).backgroundColor;
+  });
+
+// Hover transitions run for 150ms, so poll until the computed fill settles on the expected value.
+async function waitForFill(page: Page, selector: string, fill: string, matches: boolean) {
+  await page.waitForFunction(
+    ({ target, expected, shouldMatch }) => {
+      const element = document.querySelector(target);
+      return element !== null && (getComputedStyle(element).backgroundColor === expected) === shouldMatch;
+    },
+    { target: selector, expected: fill, shouldMatch: matches },
+    { timeout: 1000 },
+  );
+}
+
+const waitForFillChange = (page: Page, selector: string, restingFill: string) => waitForFill(page, selector, restingFill, false);
+const waitForFillToMatch = (page: Page, selector: string, fill: string) => waitForFill(page, selector, fill, true);
+
 try {
   await runScenario('menu-view', async (page) => {
     await page.locator('[data-commit-menu-view="menu"]').waitFor({ timeout: 5000 });
@@ -56,9 +80,40 @@ try {
     const resetHard = menu.locator('[data-commit-menu-item="reset-hard"]');
     expect(await resetHard.getAttribute('class')).toContain('gcm-item--destructive');
     expect(await menu.getByRole('separator').count()).toBe(3);
+    const checkoutRow = '[data-commit-menu-item="checkout"]';
+    const rowRestingFill = await backgroundOf(page, checkoutRow);
+    await menu.locator(checkoutRow).hover();
+    await waitForFillChange(page, checkoutRow, rowRestingFill);
     if (screenshotDir) await page.screenshot({ path: `${screenshotDir}/commit-menu-dark.png` });
     await resetHard.click();
     await page.locator('[data-commit-menu-view="confirm"]').waitFor({ timeout: 5000 });
+    const footerButtons = '[data-commit-menu-view="confirm"] .gcm-btn';
+    const backButton = `${footerButtons}[data-variant="secondary"]`;
+    const confirmButton = `${footerButtons}[data-variant="destructive"]`;
+    const radii = await page.$$eval(footerButtons, (buttons) => buttons.map((button) => parseFloat(getComputedStyle(button).borderTopLeftRadius)));
+    expect(radii.length).toBe(2);
+    expect(Math.min(...radii)).toBeGreaterThanOrEqual(14);
+    // The confirm view focuses Back on mount; blur it so the resting fill is measured without focus-visible.
+    await page.waitForFunction((selector) => document.activeElement?.matches(selector) === true, backButton);
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    const restingFill = await settledBackgroundOf(page, backButton);
+    expect(restingFill).not.toBe('rgba(0, 0, 0, 0)');
+    const restingBox = await page.locator(backButton).boundingBox();
+    await page.locator(backButton).hover();
+    await waitForFillChange(page, backButton, restingFill);
+    const hoverFill = await settledBackgroundOf(page, backButton);
+    expect(await page.locator(backButton).boundingBox()).toEqual(restingBox);
+    await page.mouse.move(0, 0);
+    await waitForFillChange(page, backButton, hoverFill);
+    await page.locator(backButton).focus();
+    await page.keyboard.press('Tab');
+    expect(await page.$eval(confirmButton, (button) => button.matches(':focus-visible'))).toBe(true);
+    expect(await page.$eval(confirmButton, (button) => getComputedStyle(button).boxShadow)).toBe('none');
+    await page.keyboard.press('Shift+Tab');
+    expect(await page.$eval(backButton, (button) => button.matches(':focus-visible'))).toBe(true);
+    expect(await page.$eval(backButton, (button) => getComputedStyle(button).boxShadow)).toBe('none');
+    await waitForFillToMatch(page, backButton, hoverFill);
+    expect(await backgroundOf(page, backButton)).toBe(hoverFill);
     if (screenshotDir) await page.screenshot({ path: `${screenshotDir}/commit-menu-confirm-dark.png` });
   });
 
